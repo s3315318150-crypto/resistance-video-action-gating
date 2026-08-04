@@ -1,0 +1,38 @@
+# Private datasets and derived media
+data/
+outputs/
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+*.xlsx
+*.xls
+~$*
+
+# Model responses and local credentials
+.env
+.env.*
+!.env.example
+raw_responses/
+
+# Python and local tools
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Temporary files and editors
+.tmp/
+tmp/
+tmp*/
+.idea/
+.vscode/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db

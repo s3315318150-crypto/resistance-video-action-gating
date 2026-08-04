@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "rubric_evidence_packet_example",
+  "rubric_id": "resistance.example",
+  "source_video_id": "sample_001.mp4",
+  "selected_candidates": [
+    {
+      "candidate_id": "candidate_001",
+      "timestamp_seconds": 30.0,
+      "frame": {"path": "media/context_001.jpg"},
+      "rois": [
+        {
+          "role": "detail",
+          "crop_path": "media/detail_001.jpg",
+          "enhanced_or_rectified_path": null,
+          "source_area_ratio": 0.12
+        }
+      ]
+    }
+  ]
+}
