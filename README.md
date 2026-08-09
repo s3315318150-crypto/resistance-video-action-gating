@@ -1,8 +1,8 @@
 # Resistance Video Action Gating
 
-伏安法测电阻实验视频的七阶段动作分割与 Rubric 独立视觉取证原型。
+伏安法测电阻实验视频的七阶段动作分割、Rubric 独立视觉取证和纸面记录/仪表读数一致性核验原型。
 
-该项目把“什么时候发生了什么动作”和“某个评分项是否有直接视觉证据”分开处理。七阶段分割只提供检索时间窗，不能直接充当评分证据。证据不足时系统自动弃权，`predicted_score=null`，不进入人工补分流程。
+该项目把“什么时候发生了什么动作”和“某个评分项是否有直接视觉证据”分开处理。七阶段分割只提供检索时间窗，不能直接充当评分证据。评分层最终只输出 `pass` 或 `fail`；置信度、可见性和候选帧只作为诊断信息。
 
 > 这是研究原型，不是可直接投入教学评分的完整产品。仓库不包含真实学生视频、姓名、Excel 标注、专家分数、原始模型响应或历史实验输出。
 
@@ -11,11 +11,11 @@
 ```mermaid
 flowchart LR
     A[全视频边界检测] --> B[七阶段动作分割]
-    B --> C[Rubric 独立动作门控]
-    C --> D[原始帧与紧密 ROI]
-    D --> E[请求体预检与去重]
-    E --> F[结构化视觉观察]
-    F --> G[本地确定性校验]
+    B --> C[层级 Map/Reduce 与终态截断]
+    C --> D[Rubric 独立动作门控]
+    D --> E[原始帧与紧密 ROI]
+    E --> F[请求体预检与结构化观察]
+    F --> G[本地确定性二分类]
     G --> H[预测工件冻结]
     H --> I[冻结后离线评测]
 ```
@@ -81,21 +81,18 @@ python scripts/qwen_experiment_segment_judge.py `
 
 模型只选择匿名帧 ID；时间戳由本地代码映射。请求失败时脚本保存脱敏错误并返回非零退出码。
 
-### 3. 执行七阶段动作分割
+### 3. 执行推荐的七阶段动作分割 v2
 
-主路径按固定分钟独立观察，再在本地合并：
+v2 使用重叠时间窗 Map、全局 Reduce、本地单调状态机和边界复核。默认启用 `local_partial` 恢复：局部冲突只隔离冲突事件；首个可信完成态整理会锁定实验终点，后续动作写入 `ignored_noise_events`。
 
 ```powershell
-python scripts/qwen_experiment_action_minute.py `
-  --input-dir outputs/marker_filter `
+python scripts/qwen_experiment_action_hierarchical_v2.py `
   --segment-source outputs/experiment_boundary/summary.json `
-  --output-dir outputs/action_minutes
-
-python scripts/qwen_experiment_action_minute_merge.py `
-  --input-dir outputs/action_minutes
+  --schema configs/action_schemas/resistance_7stage_no_battery_v2.json `
+  --output-root outputs/qwen_experiment_action_hierarchical_v2
 ```
 
-`qwen_experiment_action_segment.py` 和 `qwen_experiment_action_stepwise.py` 保留为粗到细、逐阶段两种可替换实现。合并器只接受 `valid=true` 的分钟观察。
+`qwen_experiment_action_minute.py`、`qwen_experiment_action_minute_merge.py`、`qwen_experiment_action_segment.py` 和 `qwen_experiment_action_stepwise.py` 保留为经典对照与替换实现。
 
 ### 4. Rubric 独立取证
 
@@ -140,9 +137,23 @@ python scripts/run_qwen_structured_observation.py `
   --output outputs/observations/event_01.json
 ```
 
-它会在请求前强制运行同一套媒体预检，每次命令最多发送一次请求。预检失败、请求失败或返回 JSON 未通过本地校验时，观察状态保持弃权，不会生成学生分数。
+它会在请求前强制运行同一套媒体预检，每次命令最多发送一次请求。该入口只生成观察，不直接评分；评分器使用 Rubric 的 tie-break 规则将观察收敛为 `pass` 或 `fail`。
 
-### 7. 冻结预测工件
+### 7. 核验第一组纸面记录与仪表读数
+
+先在匿名配置中填写第一轮书写前的连续时间点、双表 ROI 和同一清晰帧上的 A/V 精细 ROI。Qwen 不接收纸面数值：它先对连续帧形成读数共识，再对同一源帧的两块电表分别精读；程序最后才在本地将仪表读数和纸面 U1/I1 比较。
+
+```powershell
+python scripts/run_meter_record_consistency_v1.py `
+  --spec-config configs/meter_record_consistency.example.json `
+  --paper-summary examples/paper_records.example.json `
+  --video-root data/videos `
+  --output outputs/meter_record_consistency_v1
+```
+
+默认容差是所选量程约 30 个小格的 `1.25` 倍，即 3 V 量程为 `0.125 V`，0.6 A 量程为 `0.025 A`。U1 或 I1 缺失、不可读或超差时输出 `fail`。
+
+### 8. 冻结预测工件
 
 ```powershell
 python scripts/freeze_artifact.py `
@@ -152,19 +163,22 @@ python scripts/freeze_artifact.py `
 
 只有冻结并记录 SHA-256 后，才能在项目外部读取标签进行离线比较。留出集标签不得进入检索、提示词或规则调整。
 
-## 自动弃权
+## 二分类约定
 
-证据缺失、遮挡、不可读、时序不完整或本地校验失败时，评分层应输出：
+评分层主结果固定为：
 
 ```json
 {
-  "automated_outcome": "abstained",
-  "predicted_score": null,
-  "abstention_reason": "evidence_insufficient"
+  "decision": "pass",
+  "predicted_score": 1,
+  "confidence": 0.78,
+  "evidence_quality": "medium"
 }
 ```
 
-强制把证据不足样本改成 `pass` 或 `fail` 会混淆“没有看到”和“看到了错误”。
+证据不完整时先扩大时间窗、使用相邻帧、增强 ROI，再按 Rubric 预设的冲突规则选择最可能类别。观察层仍可记录 `uncertain`，但不能把它直接作为评分层第三类。
+
+`configs/pipeline/evidence_artifact_contract_v1.json` 与对应校验测试保留旧版 `abstained` 工件兼容性；它只用于重放历史工件，当前评分结果不得走该分支。
 
 ## 测试
 

@@ -6,7 +6,7 @@
 2. 每个 Rubric 独立选择证据，不能共用固定少量全景帧。
 3. 细节图必须从原始分辨率帧裁剪，再按传输预算缩放。
 4. 模型输出是结构化观察；枚举、引用帧和状态映射由本地代码验证。
-5. 未找到证据表示自动弃权，不表示 `fail`。
+5. 观察层可以记录证据不足或不确定；评分层必须按 Rubric 的预设冲突规则输出 `pass` 或 `fail`。
 6. 预测工件先冻结，标签后读取；留出标签不得参与调参。
 
 ## 阶段与消费者
@@ -28,8 +28,9 @@
 ```text
 marker_filter manifest
   -> experiment boundary summary
-  -> minute-level structured observations
-  -> merged seven-stage summary
+  -> overlapping-window Map observations
+  -> global Reduce and local conflict recovery
+  -> monotonic seven-stage summary and terminal cleanup barrier
   -> rubric-specific evidence packet
   -> request preflight report
   -> structured model observation
@@ -39,6 +40,10 @@ marker_filter manifest
 ```
 
 `preflight_qwen_request.py` 不调用模型。它检查图片路径、解码、尺寸、传输体积、精确重复、近重复和冗余 ROI。
+
+`qwen_experiment_action_hierarchical_v2.py` 是当前推荐的动作分割入口。Map 只描述直接可见的接线、测量、书写和整理动作；Reduce 去重并解决跨窗口冲突；本地状态机按时间单调映射为七阶段。可信的完成态整理一旦成为终点，之后事件只进入 `ignored_noise_events`，不再回流到有效时间轴。
+
+`run_meter_record_consistency_v1.py` 使用独立的仪表画面读取 U/I，且不把纸面值发送给模型。仪表观察完成后才在本地按量程相关容差与 U1/I1 比较，并生成二分类结果。
 
 ## 能力边界
 

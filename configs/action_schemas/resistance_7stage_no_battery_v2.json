@@ -1,0 +1,95 @@
+{
+  "schema_version": "resistance_action_schema.v2",
+  "stage_schema_id": "resistance_7stage_no_battery_v2",
+  "experiment": "伏安法测电阻",
+  "description": "论文思路增强的无换电池七阶段版本。使用带帧号和相对时间的信息条、重叠 Map 窗口、全局 Reduce、边界与类别解耦复核、局部宽松恢复，以及整理完成后的不可逆终止屏障。",
+  "algorithm_principles": {
+    "indexed_frames": "每张模型输入图包含真实 FRAME ID 和 VIDEO T；最终时间只由本地帧号与 FPS 换算。",
+    "coarse_to_fine": "全局区间按重叠窗口粗定位，候选阶段边界再使用 1 秒和 0.5 秒局部密集帧复核。",
+    "map_reduce": "Map 只报告直接可见基础动作；Reduce 只选择已有事件并处理跨窗口重复和冲突。",
+    "boundary_class_decoupling": "先由基础动作和状态机形成阶段，再单独复核相邻阶段边界。",
+    "local_partial_recovery": "Reduce 局部字段冲突时隔离冲突事件，保留其他直接观察，不清空整段视频。",
+    "terminal_cleanup_barrier": "首个可信的完成态 cleanup_action 是不可逆终态，其后事件只进入 ignored_noise_events。"
+  },
+  "base_actions": [
+    {
+      "id": "wiring_action",
+      "label_zh": "接线动作",
+      "definition": "摆放实验器材，插接、拔出或调整导线，连接电表、开关、待测电阻等线路。单根拔线或为继续实验而改线仍属于接线。"
+    },
+    {
+      "id": "measurement_action",
+      "label_zh": "测量动作",
+      "definition": "线路准备后操作开关、保持电路接通、观察电表或明确读取示数；不包含书写。"
+    },
+    {
+      "id": "writing_action",
+      "label_zh": "书写动作",
+      "definition": "笔尖接触记录纸并呈现填写、书写或计算动作；一张基本可用的清晰帧即可启动判断，相邻帧用于提高质量。"
+    },
+    {
+      "id": "cleanup_action",
+      "label_zh": "最终整理动作",
+      "definition": "连续拆卸线路、拔下多根导线、卷线或集中收拢器材，或者明确把橙红色仪器放回桌子左上角，且画面呈现实验已经整理完成的终态。"
+    },
+    {
+      "id": "uncertain",
+      "label_zh": "无法判断",
+      "definition": "因遮挡、抽帧缺失或动作证据不足，无法可靠归入其他基础动作；只作为诊断事件，不是最终评分类别。"
+    }
+  ],
+  "stages": [
+    {
+      "id": "circuit_wiring",
+      "order": 1,
+      "label_zh": "连线",
+      "required_base_action": "wiring_action"
+    },
+    {
+      "id": "measurement_1",
+      "order": 2,
+      "label_zh": "第一次测量",
+      "required_base_action": "measurement_action"
+    },
+    {
+      "id": "recording_1",
+      "order": 3,
+      "label_zh": "第一次记录",
+      "required_base_action": "writing_action"
+    },
+    {
+      "id": "circuit_rewiring",
+      "order": 4,
+      "label_zh": "重新连线",
+      "required_base_action": "wiring_action"
+    },
+    {
+      "id": "measurement_2",
+      "order": 5,
+      "label_zh": "第二次测量",
+      "required_base_action": "measurement_action"
+    },
+    {
+      "id": "recording_2",
+      "order": 6,
+      "label_zh": "第二次记录",
+      "required_base_action": "writing_action"
+    },
+    {
+      "id": "material_cleanup",
+      "order": 7,
+      "label_zh": "整理材料",
+      "required_base_action": "cleanup_action",
+      "absorbing_terminal": true
+    }
+  ],
+  "state_machine_rules": [
+    "阶段只能保持或向前推进，不能按预期实验流程补造缺失阶段。",
+    "Map 不判断第一次或第二次，只识别画面直接支持的基础动作。",
+    "第二次测量必须位于重新连线的直接可见证据之后。",
+    "第二次记录必须位于重新连线或第二次测量的直接可见证据之后；第二次测量可因抽帧缺失而保持 missing。",
+    "首个被接受的 cleanup_action 自动提升为最终 material_cleanup，不要求 evidence 同时命中特定关键词。",
+    "material_cleanup 的结束帧就是有效实验结束；与其重叠或更晚的其他事件标记为 ignored_noise_post_experiment。",
+    "本版本没有换电池阶段，不使用器材盒作为整理条件。"
+  ]
+}
