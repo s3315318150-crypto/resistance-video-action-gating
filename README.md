@@ -32,6 +32,16 @@ flowchart LR
 | `recording_2` | 记录第二组数据 |
 | `material_cleanup` | 拆除与整理 |
 
+## 算法文件清单
+
+| 用途 | 入口或核心文件 |
+|---|---|
+| 推荐七阶段动作分割 | `scripts/qwen_experiment_action_hierarchical_v2.py` |
+| 七阶段契约、提示词与 Reduce | `scripts/qwen_hierarchical_v1_contract.py`、`scripts/qwen_hierarchical_v1_prompts.py`、`scripts/qwen_hierarchical_v1_reduce.py` |
+| 评价 8 断开换电池组 | `scripts/run_resistance_disconnect_battery_sequence_v1.py` |
+| 评价 8 本地确定性 reducer | `scripts/resistance_disconnect_battery_sequence_core.py` |
+| 纸面记录与仪表读数核验 | `scripts/run_meter_record_consistency_v1.py` |
+
 例如，指针类证据应在 `measurement_1/2` 搜索；记录纸证据应在 `recording_1/2` 搜索；整理动作应在 `material_cleanup` 或受控末段扫描中搜索。动作标签本身不证明任何 Rubric 通过或失败。
 
 ## 环境
