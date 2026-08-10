@@ -153,7 +153,23 @@ python scripts/run_meter_record_consistency_v1.py `
 
 默认容差是所选量程约 30 个小格的 `1.25` 倍，即 3 V 量程为 `0.125 V`，0.6 A 量程为 `0.025 A`。U1 或 I1 缺失、不可读或超差时输出 `fail`。
 
-### 8. 冻结预测工件
+### 8. 评价 8：断开开关后改变串联电池节数
+
+该评分项不把“拿出电池”或一般 `circuit_rewiring` 当作通过证据。固定两节电池盒的三个抽头是 `T0 -- cell 1 -- T1 -- cell 2 -- T2`；通过条件是同一个独立 episode 内，稳定连接由 `T0-T2` 改为 `T0-T1` 或 `T1-T2`，并且换接前开关断开、换接期间没有闭合证据、换接完成后开关重新闭合。
+
+脚本会从 `circuit_rewiring` 生成 episode，也会在重复 `recording_1` 或 `measurement_1` 之间搜索短暂间隔，避免遗漏短换线。所有端点和开关证据必须留在同一个 episode 内，不能跨时间拼接。
+
+```powershell
+python scripts/run_resistance_disconnect_battery_sequence_v1.py `
+  --action-summary outputs/qwen_experiment_action_hierarchical_v2/<run-id>/summary.json `
+  --roi-config configs/resistance_disconnect_battery_rois.example.json `
+  --video-root data/videos `
+  --output-root outputs/resistance_disconnect_battery_sequence_v1
+```
+
+Qwen 只返回帧级的端点、直接接触和开关观察；`resistance_disconnect_battery_sequence_core.py` 在本地生成最终 `pass/fail`。离线重放可通过 `--observations-root` 提供已保存的 observations，不再调用模型。
+
+### 9. 冻结预测工件
 
 ```powershell
 python scripts/freeze_artifact.py `

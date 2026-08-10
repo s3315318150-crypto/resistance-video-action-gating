@@ -1,0 +1,34 @@
+{
+  "rubric_id": "resistance.disconnect_before_battery_terminal_rewire",
+  "stage": 8,
+  "stage_schema_id": "resistance_7stage_no_battery_v2",
+  "name": "改变串联电池节数前先断开开关",
+  "target_operation": {
+    "before": ["left_outer", "right_outer"],
+    "after": ["left_outer", "middle"],
+    "accepted_mirror": ["middle", "right_outer"],
+    "description": "实体电池不拆下；将一根外接导线从电池盒外侧端子换接到中间抽头，使有效串联节数由两节变为一节。"
+  },
+  "required_evidence": [
+    "switch_open_before_terminal_rewire",
+    "outer_to_middle_lead_rewire_completed",
+    "switch_closed_after_terminal_rewire",
+    "strict_temporal_order"
+  ],
+  "decision_policy": {
+    "pass": "同一 episode 内确认外端子对变为外端子加中间抽头，且开关在换接前已断开、换接期间没有闭合证据、换接后重新闭合。",
+    "fail": "没有确认外端子到中间抽头的完成换接，或换接期间开关闭合，或换接后未重新闭合。"
+  },
+  "binary_output": {
+    "values": ["pass", "fail"],
+    "score_mapping": {"pass": 1, "fail": 0},
+    "uncertainty_field": "diagnostics"
+  },
+  "sampling": {
+    "episode_margin_seconds": 10.0,
+    "coarse_fps": 2.0,
+    "core_fps": 5.0,
+    "transition_fps": 10.0,
+    "max_transition_context_seconds": 3.0
+  }
+}

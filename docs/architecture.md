@@ -45,6 +45,8 @@ marker_filter manifest
 
 `run_meter_record_consistency_v1.py` 使用独立的仪表画面读取 U/I，且不把纸面值发送给模型。仪表观察完成后才在本地按量程相关容差与 U1/I1 比较，并生成二分类结果。
 
+评价 8 使用 `run_resistance_disconnect_battery_sequence_v1.py` 和 `resistance_disconnect_battery_sequence_core.py`。每个端点换接 episode 独立判断：先确认 `T0-T2` 到单节对 `T0-T1` 或 `T1-T2` 的稳定转变，再验证“开关断开 -> 换接 -> 开关闭合”的时间顺序。跨 episode 的观察不会合并。
+
 ## 能力边界
 
 本仓库固化的是研究型取证流水线，不包含真实训练/评测数据，也不声称对所有视频稳定自动评分。任何准确率、覆盖率或泛化结论都必须来自独立、合规且冻结后的评测。
