@@ -42,6 +42,34 @@ flowchart LR
 | 评价 8 本地确定性 reducer | `scripts/resistance_disconnect_battery_sequence_core.py` |
 | 纸面记录与仪表读数核验 | `scripts/run_meter_record_consistency_v1.py` |
 
+## 十项评分链
+
+`scripts/run_all_rubrics_v2.py` 是十项评分的公开编排入口。它读取动作分割结果与各项专用证据工件，并把最终评分统一为 `pass` 或 `fail`；它不读取 Excel 标签，也不修改原始视频。
+
+| 指标 | 评分项 | 主要证据来源 |
+|---:|---|---|
+| 0 | 拆除整理归位 | `material_cleanup` 与整理动作证据 |
+| 1 | 电流表串联 | 接线 episode 或电流表-电源短路专用证据 |
+| 2 | 电压表并联 | 记录期同帧电压表/电阻端点证据 |
+| 3 | 接线时开关断开 | 接线动作与刀闸状态的时间重叠证据 |
+| 4 | 电表正负接线柱正确 | 测量/记录期端子、指针和读数符号证据 |
+| 5 | 指针正常偏转 | 双表表盘 ROI 与连续帧指针状态 |
+| 6 | 电表量程合适 | 量程端子、档位和读数证据 |
+| 7 | 正确记录第一组数据 | 第一组纸面 U/I 与仪表读数核验 |
+| 8 | 换电池前先断开开关 | `T0-T2 -> T0-T1/T1-T2` 与开关时序 |
+| 9 | 正确记录第二组数据 | 第二轮测量语境、仪表读数和纸面 U/I |
+
+先运行各评分项的证据提取器，将其输出路径填入匿名配置，再运行总评：
+
+```powershell
+python scripts/run_all_rubrics_v2.py `
+  --action-summary outputs/qwen_experiment_action_hierarchical_v2/<run-id>/summary.json `
+  --artifact-config configs/ten_rubrics_artifacts.example.json `
+  --output-root outputs/all_rubrics_v2
+```
+
+配置中的未提供项不会被虚构为通过；逐视频 `result.json` 会记录每一项的来源、证据时间窗、置信度和二分类映射。
+
 例如，指针类证据应在 `measurement_1/2` 搜索；记录纸证据应在 `recording_1/2` 搜索；整理动作应在 `material_cleanup` 或受控末段扫描中搜索。动作标签本身不证明任何 Rubric 通过或失败。
 
 ## 环境
