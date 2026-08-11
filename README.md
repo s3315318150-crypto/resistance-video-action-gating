@@ -198,10 +198,11 @@ v3 是独立实验版，不覆盖 v1/v2 的代码、Schema 或输出目录。它
 3. 每个 Map 窗口增加一次独立测量二分类。它优先检查 5 秒锚点和低运动帧，补充容易被高运动选帧漏掉的静止观察、读表和开关操作；`yes/no` 都必须引用证据帧并解释。本实验不存在滑动变阻器，提示词禁止补造调节滑片。
 4. 视频最后 45 秒增加一次独立整理二分类，每 2 秒取帧。确认完成态后生成标准 `cleanup_action` 候选；即使 Reduce 的文本结果遗漏该候选，程序也会先晋升为待复核终态，再发送整理前、中、后多帧确认，未通过时恢复后续事件。
 5. Reduce 后使用带权有向图 beam 解码。第一次测量后的短促接线可留在第一次循环；明确改接、新拓扑或电池配置变化会提高第二轮路径得分。
-6. `recording_2` 必须先观察到 `measurement_2`。状态图允许 `recording_2 -> measurement_2 -> recording_2` 的局部回退，但对回退施加 `-0.2` 惩罚并在事件中保存转移原因。
-7. 两轮测量后集中书写会标记 `batched_recording=true`，同一书写窗口可供第一组和第二组记录专项取证检索。
-8. `circuit_wiring -> measurement_1` 使用正向和反向两种提示词复核；相差超过 3 秒时保存 `boundary_uncertainty_seconds` 和两份模型原文。
-9. `result.json` 新增 `anomalous_events`、独立二分类诊断和 `downstream_hints.meter_reading_windows`，供诊断和读表流水线自动选窗。
+6. 严格状态路径要求先观察到 `measurement_2` 才进入 `recording_2`。若出现“重新连线后直接书写”且缺少第二次测量事件，程序按每个视频自身的事件序列建立测量桥接区间：每轮从第一个 `circuit_rewiring` 事件结束时开始，到该轮首次待定书写开始时结束；后续新一轮重新连线会自动建立新候选。候选区间由 Qwen 独立二分类复核，不读取姓名、视频 ID 或预设秒数。
+7. 桥接复核观察到闭合开关、读表或测量过程时，程序补建标准 `measurement_action`；复核为 `no` 或返回无效时，使用经典版“重新连线后书写”规则恢复 `recording_2`，同时写入 `legacy_recording_2_fallback=true`、`inferred_stage=true`、`measurement_2_observed=false` 和 `fallback_source=legacy_v2_sequence_rule`，不把流程推断伪装成直接视觉观察。
+8. 状态图允许 `recording_2 -> measurement_2 -> recording_2` 的局部回退，但对回退施加 `-0.2` 惩罚并在事件中保存转移原因。两轮测量后集中书写会标记 `batched_recording=true`，同一书写窗口可供第一组和第二组记录专项取证检索。
+9. `circuit_wiring -> measurement_1` 使用正向和反向两种提示词复核；相差超过 3 秒时保存 `boundary_uncertainty_seconds` 和两份模型原文。
+10. `result.json` 新增 `anomalous_events`、独立二分类诊断和 `downstream_hints.meter_reading_windows`，供诊断和读表流水线自动选窗。
 
 单独运行：
 

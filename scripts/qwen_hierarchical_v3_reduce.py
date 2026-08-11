@@ -256,36 +256,63 @@ def assign_seven_stages_v3(
                         )
                     )
                 elif phase == 3:
-                    expanded.append(
-                        _advance(
-                            node,
-                            _assigned_item(
-                                event,
-                                None,
-                                "pending_writing_before_measurement_2",
-                                pending_stage="recording_2",
-                            ),
-                            3,
-                            -0.25,
+                    if event.get("legacy_recording_2_fallback") is True:
+                        expanded.append(
+                            _advance(
+                                node,
+                                _assigned_item(
+                                    event,
+                                    "recording_2",
+                                    "legacy_rewiring_then_writing_fallback",
+                                    inferred_stage=True,
+                                    measurement_2_observed=False,
+                                    fallback_source="legacy_v2_sequence_rule",
+                                    recording_search_aliases=["recording_2"],
+                                ),
+                                5,
+                                -0.1,
+                                recording_2_observed=True,
+                            )
                         )
-                    )
+                    else:
+                        expanded.append(
+                            _advance(
+                                node,
+                                _assigned_item(
+                                    event,
+                                    None,
+                                    "pending_writing_before_measurement_2",
+                                    pending_stage="recording_2",
+                                ),
+                                3,
+                                -0.25,
+                            )
+                        )
                 elif phase in (4, 5):
                     batched = not bool(node["recording_1_observed"])
                     repeated = bool(node["recording_2_observed"])
+                    legacy_fallback = event.get("legacy_recording_2_fallback") is True
                     expanded.append(
                         _advance(
                             node,
                             _assigned_item(
                                 event,
                                 "recording_2",
-                                "repeated_recording_2_after_measurement_return"
-                                if repeated
-                                else ("batched_writing_after_two_measurements" if batched else "writing_after_second_measurement"),
+                                "legacy_rewiring_then_writing_fallback"
+                                if legacy_fallback
+                                else (
+                                    "repeated_recording_2_after_measurement_return"
+                                    if repeated
+                                    else ("batched_writing_after_two_measurements" if batched else "writing_after_second_measurement")
+                                ),
                                 batched_recording=batched,
                                 recording_search_aliases=["recording_1", "recording_2"] if batched else ["recording_2"],
+                                inferred_stage=legacy_fallback,
+                                measurement_2_observed=False if legacy_fallback else True,
+                                fallback_source="legacy_v2_sequence_rule" if legacy_fallback else None,
                             ),
                             5,
-                            0.7 if repeated else 0.8,
+                            -0.1 if legacy_fallback else (0.7 if repeated else 0.8),
                             batched_recording=bool(node["batched_recording"]) or batched,
                             recording_2_observed=True,
                         )
@@ -320,6 +347,9 @@ def assign_seven_stages_v3(
             "decoder_transition",
             "transition_penalty",
             "pending_stage",
+            "inferred_stage",
+            "measurement_2_observed",
+            "fallback_source",
         ):
             if key in item:
                 interval[key] = item[key]

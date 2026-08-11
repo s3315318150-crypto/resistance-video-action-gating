@@ -18,6 +18,7 @@ from qwen_hierarchical_v3_prompts import (  # noqa: E402
     build_endpoint_cleanup_binary_prompt,
     build_map_prompt,
     build_measurement_binary_prompt,
+    build_measurement_bridge_prompt,
     build_reduce_prompt,
 )
 
@@ -79,6 +80,14 @@ class HierarchicalV3ContractTests(unittest.TestCase):
         cleanup_prompt = build_endpoint_cleanup_binary_prompt("sample", frames)
         self.assertIn('"cleanup_completed": "yes" | "no"', cleanup_prompt)
         self.assertIn("桌子左上角", cleanup_prompt)
+        bridge_prompt = build_measurement_bridge_prompt(
+            "sample",
+            {"bridge_id": "measurement_bridge_001", "candidate_range_seconds": [10.0, 15.0]},
+            frames,
+        )
+        self.assertIn("通用动作顺序", bridge_prompt)
+        self.assertIn('"measurement_observed": "yes" | "no"', bridge_prompt)
+        self.assertIn("不得因为“重新连线后通常会测量”", bridge_prompt)
 
     def test_bind_and_restore_leave_v1_identity_reproducible(self) -> None:
         v3.bind_v3_identity()

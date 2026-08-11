@@ -158,6 +158,41 @@ cleanup_completed=yes 必须直接看到至少一种不可逆结束状态，并�
 若回答 no，三个 cleanup FRAME ID 必须为 null。"""
 
 
+def build_measurement_bridge_prompt(
+    video_id: str,
+    candidate: dict[str, Any],
+    frames: list[dict[str, Any]],
+) -> str:
+    frame_ids = [str(frame["image_id"]) for frame in frames]
+    start, end = candidate["candidate_range_seconds"]
+    return f"""你正在复核伏安法测电阻视频 `{video_id}` 的自动测量桥接候选 `{candidate['bridge_id']}`。
+
+程序仅依据通用动作顺序发现该候选：前面是重新连线，后面是书写；候选核心区间为 {start:.3f}s 至 {end:.3f}s。这个顺序不能证明发生了测量，必须只根据图片判断。
+
+图片按时间先后排列，合法 FRAME ID 为：{', '.join(frame_ids)}。
+
+measurement_observed=yes 需要直接看到以下任一时序证据：
+1. 开关从断开变为闭合，或学生明确按下/闭合开关；
+2. 线路停止插拔后，学生保持电路接通并观察电压表或电流表；
+3. 相邻帧显示学生完成开关操作，短暂停留读数，然后才转向纸面书写。
+
+顶视画面通常看不见脸，因此不强制要求看清视线；但仅仅把手放在接线柱、继续插拔导线、拿笔或书写不能算测量。本实验没有滑动变阻器，不得描述滑片或调节滑片。不得因为“重新连线后通常会测量”而回答 yes。
+
+只输出一个 JSON：
+{{
+  "bridge_id": "{candidate['bridge_id']}",
+  "measurement_observed": "yes" | "no",
+  "first_measurement_frame_id": "{frame_ids[0]}" | null,
+  "last_measurement_frame_id": "{frame_ids[-1]}" | null,
+  "representative_frame_id": "{frame_ids[0]}" | null,
+  "decision_evidence_frame_ids": ["{frame_ids[0]}"],
+  "decision_evidence": "不超过180字，描述直接可见的开关/读表证据或非测量证据",
+  "confidence": 0.0
+}}
+
+回答 no 时，三个 measurement FRAME ID 必须为 null，但证据帧和说明仍必须填写。"""
+
+
 def build_reverse_boundary_prompt(
     video_id: str,
     boundary: dict[str, Any],

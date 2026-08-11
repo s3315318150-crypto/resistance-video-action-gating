@@ -93,6 +93,22 @@ class HierarchicalV3ReduceTests(unittest.TestCase):
         self.assertEqual("pending_writing_before_measurement_2", pending["assignment_reason"])
         self.assertIn("recording_2", result["missing_stages"])
 
+    def test_legacy_fallback_restores_recording_2_with_explicit_inference_marker(self) -> None:
+        events = [
+            event("e1", "wiring_action", 0, 10),
+            event("e2", "measurement_action", 11, 22),
+            event("e3", "writing_action", 23, 30),
+            event("e4", "wiring_action", 31, 40, "明确换接导线到另一端"),
+            {**event("e5", "writing_action", 41, 48), "legacy_recording_2_fallback": True},
+        ]
+        result = assign_seven_stages_v3(events, None)
+        fallback = next(item for item in result["assigned_events"] if item["event_id"] == "e5")
+        self.assertEqual("recording_2", fallback["stage"])
+        self.assertEqual("legacy_rewiring_then_writing_fallback", fallback["assignment_reason"])
+        self.assertTrue(fallback["inferred_stage"])
+        self.assertFalse(fallback["measurement_2_observed"])
+        self.assertEqual("legacy_v2_sequence_rule", fallback["fallback_source"])
+
     def test_recording_2_can_return_to_measurement_2_with_penalty_then_record_again(self) -> None:
         events = [
             event("e1", "wiring_action", 0, 10),

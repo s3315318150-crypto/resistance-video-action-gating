@@ -19,6 +19,7 @@ from qwen_hierarchical_v3_prompts import (
     build_endpoint_cleanup_binary_prompt,
     build_map_prompt,
     build_measurement_binary_prompt,
+    build_measurement_bridge_prompt,
     build_reduce_prompt,
     build_reverse_boundary_prompt,
 )
@@ -797,6 +798,237 @@ def _promote_endpoint_cleanup_candidate(
     return promoted, terminal
 
 
+def discover_measurement_bridge_candidates(
+    accepted_events: list[dict[str, Any]],
+    terminal_cleanup_event_id: str | None,
+) -> list[dict[str, Any]]:
+    """Find generic rewiring-episode-to-writing gaps where measurement 2 is absent."""
+    state = assign_seven_stages_v3(accepted_events, terminal_cleanup_event_id)
+    assigned = list(state["assigned_events"])
+    candidates: list[dict[str, Any]] = []
+    rewiring_anchor: dict[str, Any] | None = None
+    rewiring_event_ids: list[str] = []
+    for item in assigned:
+        if item.get("stage") == "circuit_rewiring":
+            if rewiring_anchor is None:
+                rewiring_anchor = item
+                rewiring_event_ids = []
+            rewiring_event_ids.append(str(item["event_id"]))
+            continue
+        if item.get("assignment_reason") != "pending_writing_before_measurement_2":
+            continue
+        if rewiring_anchor is None:
+            continue
+        start = float(rewiring_anchor["last_seconds"])
+        end = float(item["first_seconds"])
+        if end <= start:
+            rewiring_anchor = None
+            rewiring_event_ids = []
+            continue
+        duration = end - start
+        base_interval = 0.5 if duration <= 12.0 else 1.0
+        sampling_interval = max(base_interval, duration / 47.0)
+        candidates.append(
+            {
+                "bridge_id": f"measurement_bridge_{len(candidates) + 1:03d}",
+                "rewiring_event_id": str(rewiring_anchor["event_id"]),
+                "rewiring_event_ids": list(rewiring_event_ids),
+                "writing_event_id": str(item["event_id"]),
+                "candidate_range_seconds": [start, end],
+                "duration_seconds": round(duration, 6),
+                "sample_interval_seconds": round(sampling_interval, 6),
+                "candidate_start_rule": "first_rewiring_event_end_in_episode",
+                "discovery_rule": "rewiring_episode_then_first_pending_writing_without_measurement_2",
+            }
+        )
+        rewiring_anchor = None
+        rewiring_event_ids = []
+    return candidates
+
+
+def _validate_measurement_bridge(
+    value: Any,
+    bridge_id: str,
+    frames: list[dict[str, Any]],
+) -> list[str]:
+    if not isinstance(value, dict):
+        return ["measurement_bridge_not_object"]
+    errors: list[str] = []
+    known = {str(frame["image_id"]): index for index, frame in enumerate(frames)}
+    if value.get("bridge_id") != bridge_id:
+        errors.append("bridge_id_mismatch")
+    observed = value.get("measurement_observed")
+    if observed not in {"yes", "no"}:
+        errors.append("measurement_observed_invalid")
+    fields = ("first_measurement_frame_id", "last_measurement_frame_id", "representative_frame_id")
+    ids = [value.get(field) for field in fields]
+    valid_ids = [isinstance(item, str) and item in known for item in ids]
+    if observed == "yes" and not all(valid_ids):
+        errors.append("measurement_frame_ids_invalid")
+    if observed == "no" and any(item is not None for item in ids):
+        errors.append("no_with_measurement_frame_ids")
+    if observed == "yes" and all(valid_ids):
+        first_id, last_id, representative_id = (str(item) for item in ids)
+        if known[first_id] > known[last_id]:
+            errors.append("measurement_frame_order_invalid")
+        if not known[first_id] <= known[representative_id] <= known[last_id]:
+            errors.append("measurement_representative_outside_interval")
+    evidence_ids = value.get("decision_evidence_frame_ids")
+    if (
+        not isinstance(evidence_ids, list)
+        or not evidence_ids
+        or any(not isinstance(item, str) or item not in known for item in evidence_ids)
+    ):
+        errors.append("decision_evidence_frame_ids_invalid")
+    if not isinstance(value.get("decision_evidence"), str) or not str(value.get("decision_evidence", "")).strip():
+        errors.append("decision_evidence_invalid")
+    if not _valid_confidence(value.get("confidence")):
+        errors.append("confidence_invalid")
+    return sorted(set(errors))
+
+
+def _measurement_bridge_event(
+    value: dict[str, Any],
+    candidate: dict[str, Any],
+    frames: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if value.get("measurement_observed") != "yes":
+        return None
+    by_id = {str(frame["image_id"]): frame for frame in frames}
+    first = by_id[str(value["first_measurement_frame_id"])]
+    last = by_id[str(value["last_measurement_frame_id"])]
+    representative = by_id[str(value["representative_frame_id"])]
+    bridge_id = str(candidate["bridge_id"])
+    return {
+        "event_id": bridge_id,
+        "source_event_id": bridge_id,
+        "window_id": "measurement_bridge_recovery",
+        "action_type": "measurement_action",
+        "first_frame_id": first["image_id"],
+        "last_frame_id": last["image_id"],
+        "representative_frame_id": representative["image_id"],
+        "first_frame_number": int(first["frame_number"]),
+        "last_frame_number": int(last["frame_number"]),
+        "representative_frame_number": int(representative["frame_number"]),
+        "first_seconds": float(first["timestamp_seconds"]),
+        "last_seconds": float(last["timestamp_seconds"]),
+        "representative_seconds": float(representative["timestamp_seconds"]),
+        "evidence": str(value["decision_evidence"]),
+        "confidence": float(value["confidence"]),
+        "independent_binary_confirmation": "measurement_bridge",
+        "bridge_candidate": candidate,
+    }
+
+
+def _run_measurement_bridge_candidate(
+    prepared: dict[str, Any],
+    candidate: dict[str, Any],
+    client: Any,
+    args: Any,
+) -> tuple[dict[str, Any] | None, dict[str, Any], list[str]]:
+    start, end = (float(value) for value in candidate["candidate_range_seconds"])
+    frame_numbers = engine._frame_numbers_for_range(
+        start,
+        end,
+        float(candidate["sample_interval_seconds"]),
+        float(prepared["fps"]),
+        int(prepared["frame_count"]),
+    )
+    engine._extract_source_frames(
+        prepared["manifest"],
+        frame_numbers,
+        prepared["frames_dir"],
+        args.max_model_edge,
+        prepared["frame_registry"],
+    )
+    frames = [prepared["frame_registry"][number] for number in frame_numbers]
+    prompt = build_measurement_bridge_prompt(str(prepared["video_id"]), candidate, frames)
+    output_dir = prepared["video_dir"] / "reduce" / "measurement_bridge" / str(candidate["bridge_id"])
+    contract.write_json_atomic(
+        output_dir / "input.json",
+        {"candidate": candidate, "input_frames": frames},
+    )
+    engine._write_text(output_dir / "prompt.txt", prompt)
+    attempts: list[dict[str, Any]] = []
+    parsed: dict[str, Any] | None = None
+    errors: list[str] = []
+    for attempt_index in range(args.max_attempts):
+        current_prompt = prompt
+        if attempt_index:
+            current_prompt += "\n\n上次输出格式错误：" + ", ".join(errors) + "。请严格按原 JSON 重答。"
+        raw = engine._attempt_qwen(client, current_prompt, frames, args.boundary_max_tokens)
+        candidate_result = raw.get("parsed_result")
+        parsed = candidate_result if isinstance(candidate_result, dict) else None
+        errors = _validate_measurement_bridge(parsed, str(candidate["bridge_id"]), frames)
+        attempts.append({"attempt_index": attempt_index + 1, "qwen": raw, "validation_errors": errors})
+        if not errors:
+            break
+    event = _measurement_bridge_event(parsed, candidate, frames) if parsed is not None and not errors else None
+    result = {
+        "bridge_id": candidate["bridge_id"],
+        "candidate": candidate,
+        "valid": not errors,
+        "validation_errors": errors,
+        "attempts": attempts,
+        "parsed_result": parsed,
+        "normalized_event": event,
+    }
+    contract.write_json_atomic(output_dir / "result.json", result)
+    review = [f"measurement_bridge_invalid:{candidate['bridge_id']}:{','.join(errors)}"] if errors else []
+    return event, result, review
+
+
+def _run_measurement_bridge_recovery(
+    prepared: dict[str, Any],
+    selected: list[dict[str, Any]],
+    result: dict[str, Any],
+    client: Any,
+    args: Any,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    terminal_id = result.get("selection", {}).get("terminal_cleanup_event_id")
+    candidates = discover_measurement_bridge_candidates(selected, terminal_id)
+    selected_by_id = {str(event["event_id"]): dict(event) for event in selected}
+    recovered_events: list[dict[str, Any]] = []
+    candidate_results: list[dict[str, Any]] = []
+    review: list[str] = []
+    for candidate in candidates:
+        event, candidate_result, candidate_review = _run_measurement_bridge_candidate(
+            prepared,
+            candidate,
+            client,
+            args,
+        )
+        candidate_results.append(candidate_result)
+        review.extend(candidate_review)
+        if event is not None:
+            recovered_events.append(event)
+            continue
+        writing_id = str(candidate["writing_event_id"])
+        writing = selected_by_id.get(writing_id)
+        if writing is not None:
+            writing["legacy_recording_2_fallback"] = True
+            writing["measurement_bridge_id"] = candidate["bridge_id"]
+            writing["measurement_bridge_result"] = (
+                "visual_no" if candidate_result.get("valid") else "model_result_invalid"
+            )
+    combined = sorted(
+        [*selected_by_id.values(), *recovered_events],
+        key=lambda item: (int(item["representative_frame_number"]), int(item["first_frame_number"])),
+    )
+    result["accepted_events"] = combined
+    result["measurement_bridge_recovery"] = {
+        "policy": "visual_bridge_first_then_legacy_rewiring_writing_fallback",
+        "candidate_count": len(candidates),
+        "visual_measurement_recovered_count": len(recovered_events),
+        "legacy_fallback_count": sum(
+            1 for event in combined if event.get("legacy_recording_2_fallback") is True
+        ),
+        "candidates": candidate_results,
+        "recovered_measurement_events": recovered_events,
+    }
+    return combined, sorted(set(review))
+
+
 def run_reduce_v3(
     prepared: dict[str, Any],
     map_events: list[dict[str, Any]],
@@ -817,8 +1049,16 @@ def run_reduce_v3(
         terminal_id = str(terminal["event_id"]) if terminal is not None else None
     if not isinstance(terminal_id, str) or terminal is None:
         result["cleanup_confirmation"] = {"required": False, "reason": "no_terminal_cleanup_candidate"}
+        selected, bridge_review = _run_measurement_bridge_recovery(
+            prepared,
+            selected,
+            result,
+            client,
+            args,
+        )
+        review.extend(bridge_review)
         contract.write_json_atomic(prepared["video_dir"] / "reduce" / "result.json", result)
-        return selected, result, review
+        return selected, result, sorted(set(review))
 
     frame_numbers = _cleanup_frame_numbers(prepared, terminal)
     engine._extract_source_frames(
@@ -873,6 +1113,14 @@ def run_reduce_v3(
         review.append(reason)
     else:
         _record_confirmed_post_terminal_noise(canonical_events, result, terminal)
+    selected, bridge_review = _run_measurement_bridge_recovery(
+        prepared,
+        selected,
+        result,
+        client,
+        args,
+    )
+    review.extend(bridge_review)
     contract.write_json_atomic(prepared["video_dir"] / "reduce" / "result.json", result)
     return selected, result, sorted(set(review))
 

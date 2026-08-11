@@ -177,6 +177,112 @@ class HierarchicalV3EntrypointTests(unittest.TestCase):
         no_value.pop("decision_evidence")
         self.assertIn("decision_evidence_invalid", v3._validate_measurement_binary(no_value, "w001", frames))
 
+    def test_measurement_bridge_candidates_are_derived_from_event_sequence(self) -> None:
+        rewiring = map_event("rewire", "wiring_action", 31.0, 40.0)
+        rewiring["evidence"] = "明确换接导线到另一端"
+        canonical = v3.deduplicate_map_events_v3(
+            [
+                map_event("wire", "wiring_action", 0.0, 10.0),
+                map_event("measure", "measurement_action", 11.0, 20.0),
+                map_event("record", "writing_action", 21.0, 30.0),
+                rewiring,
+                map_event("later_record", "writing_action", 47.5, 55.0),
+                map_event("continued_record", "writing_action", 58.0, 65.0),
+            ]
+        )
+        candidates = v3.discover_measurement_bridge_candidates(canonical, None)
+        self.assertEqual(1, len(candidates))
+        self.assertEqual([40.0, 47.5], candidates[0]["candidate_range_seconds"])
+        self.assertEqual(0.5, candidates[0]["sample_interval_seconds"])
+        self.assertEqual(canonical[-2]["event_id"], candidates[0]["writing_event_id"])
+
+    def test_measurement_bridge_uses_first_rewiring_end_for_each_generic_episode(self) -> None:
+        first_rewiring = map_event("rewire_a", "wiring_action", 31.0, 40.0)
+        first_rewiring["evidence"] = "明确换接导线到另一端"
+        same_episode_rewiring = map_event("rewire_b", "wiring_action", 52.0, 55.0)
+        same_episode_rewiring["evidence"] = "继续调整并插接实验线路"
+        next_episode_rewiring = map_event("rewire_c", "wiring_action", 70.0, 75.0)
+        next_episode_rewiring["evidence"] = "再次明确换接导线"
+        canonical = v3.deduplicate_map_events_v3(
+            [
+                map_event("wire", "wiring_action", 0.0, 10.0),
+                map_event("measure", "measurement_action", 11.0, 20.0),
+                map_event("record", "writing_action", 21.0, 30.0),
+                first_rewiring,
+                same_episode_rewiring,
+                map_event("later_record", "writing_action", 60.0, 65.0),
+                next_episode_rewiring,
+                map_event("second_later_record", "writing_action", 80.0, 85.0),
+            ]
+        )
+
+        candidates = v3.discover_measurement_bridge_candidates(canonical, None)
+
+        self.assertEqual(2, len(candidates))
+        self.assertEqual([40.0, 60.0], candidates[0]["candidate_range_seconds"])
+        self.assertEqual(2, len(candidates[0]["rewiring_event_ids"]))
+        self.assertEqual([75.0, 80.0], candidates[1]["candidate_range_seconds"])
+        self.assertEqual("first_rewiring_event_end_in_episode", candidates[0]["candidate_start_rule"])
+
+    def test_measurement_bridge_visual_yes_inserts_measurement_2(self) -> None:
+        rewiring = map_event("rewire", "wiring_action", 31.0, 40.0)
+        rewiring["evidence"] = "明确换接导线到另一端"
+        canonical = v3.deduplicate_map_events_v3(
+            [
+                map_event("wire", "wiring_action", 0.0, 10.0),
+                map_event("measure", "measurement_action", 11.0, 20.0),
+                map_event("record", "writing_action", 21.0, 30.0),
+                rewiring,
+                map_event("later_record", "writing_action", 47.5, 55.0),
+            ]
+        )
+        recovered = {
+            **map_event("bridge", "measurement_action", 42.0, 45.0),
+            "event_id": "measurement_bridge_001",
+            "independent_binary_confirmation": "measurement_bridge",
+        }
+        result = {"selection": {"terminal_cleanup_event_id": None}}
+        with patch.object(
+            v3,
+            "_run_measurement_bridge_candidate",
+            return_value=(recovered, {"valid": True, "parsed_result": {"measurement_observed": "yes"}}, []),
+        ):
+            combined, review = v3._run_measurement_bridge_recovery({}, canonical, result, object(), object())
+        state = v3.assign_seven_stages_v3(combined, None)
+        stages = {item["event_id"]: item["stage"] for item in state["assigned_events"]}
+        self.assertEqual([], review)
+        self.assertEqual("measurement_2", stages["measurement_bridge_001"])
+        self.assertEqual("recording_2", stages[canonical[-1]["event_id"]])
+        self.assertEqual(1, result["measurement_bridge_recovery"]["visual_measurement_recovered_count"])
+
+    def test_measurement_bridge_visual_no_uses_marked_legacy_fallback(self) -> None:
+        rewiring = map_event("rewire", "wiring_action", 31.0, 40.0)
+        rewiring["evidence"] = "明确换接导线到另一端"
+        canonical = v3.deduplicate_map_events_v3(
+            [
+                map_event("wire", "wiring_action", 0.0, 10.0),
+                map_event("measure", "measurement_action", 11.0, 20.0),
+                map_event("record", "writing_action", 21.0, 30.0),
+                rewiring,
+                map_event("later_record", "writing_action", 47.5, 55.0),
+            ]
+        )
+        no_result = {"valid": True, "parsed_result": {"measurement_observed": "no"}}
+        result = {"selection": {"terminal_cleanup_event_id": None}}
+        with patch.object(
+            v3,
+            "_run_measurement_bridge_candidate",
+            return_value=(None, no_result, []),
+        ):
+            combined, review = v3._run_measurement_bridge_recovery({}, canonical, result, object(), object())
+        state = v3.assign_seven_stages_v3(combined, None)
+        fallback = next(item for item in state["assigned_events"] if item["event_id"] == canonical[-1]["event_id"])
+        self.assertEqual([], review)
+        self.assertEqual("recording_2", fallback["stage"])
+        self.assertTrue(fallback["legacy_recording_2_fallback"])
+        self.assertTrue(fallback["inferred_stage"])
+        self.assertEqual(1, result["measurement_bridge_recovery"]["legacy_fallback_count"])
+
     def test_endpoint_cleanup_binary_can_create_candidate_without_map_cleanup(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
