@@ -1,0 +1,63 @@
+{
+  "schema_version": "resistance_action_schema.v3",
+  "stage_schema_id": "resistance_7stage_no_battery_v3",
+  "experiment": "伏安法测电阻",
+  "description": "实验性 v3：保留七阶段主输出，引入辅助动作、混合动态采样、多帧终态确认、纠错回路解码、集中书写诊断、关键边界双确认和下游读表窗口。",
+  "algorithm_principles": {
+    "visible_actions_first": "Map 只报告直接可见动作，第一次和第二次由本地带权解码器分配。",
+    "adaptive_sampling": "固定时间锚点保证全局覆盖，高活动片段在相同图片预算内获得更密集采样。",
+    "correction_loops": "第一次测量后、第一次记录前的接线同时保留纠错和进入第二轮两种假设，由全局证据评分。",
+    "cleanup_confirmation": "cleanup_action 只有通过动作前后多帧视觉确认后才能成为不可逆终态。",
+    "auxiliary_actions": "换电池、换座位、闲聊和教师介入作为辅助事件保留，不强制映射到七阶段。",
+    "downstream_hints": "测量阶段自动导出读表候选窗口和建议采样时刻。"
+  },
+  "base_actions": [
+    {
+      "id": "wiring_action",
+      "label_zh": "接线动作",
+      "definition": "摆放器材、插接、拔出或调整导线，包括纠错插接和为后续实验进行的改线。"
+    },
+    {
+      "id": "measurement_action",
+      "label_zh": "测量动作",
+      "definition": "操作开关、观察仪表、读取示数或保持电路接通进行测量；不包含书写。"
+    },
+    {
+      "id": "writing_action",
+      "label_zh": "书写动作",
+      "definition": "笔尖接触记录纸并填写、书写或计算；允许两轮测量结束后集中书写。"
+    },
+    {
+      "id": "cleanup_action",
+      "label_zh": "最终整理候选",
+      "definition": "连续拆线、卷线、集中归拢器材或把橙红色仪器放回桌子左上角；仍须多帧终态确认。"
+    },
+    {
+      "id": "auxiliary_action",
+      "label_zh": "辅助或异常动作",
+      "definition": "不属于七阶段但应保留的换电池、换座位、闲聊、教师介入、离题活动或其他操作。"
+    },
+    {
+      "id": "uncertain",
+      "label_zh": "无法判断",
+      "definition": "因遮挡、采样缺失或证据冲突而无法可靠分类。"
+    }
+  ],
+  "stages": [
+    {"id": "circuit_wiring", "order": 1, "label_zh": "连线", "required_base_action": "wiring_action"},
+    {"id": "measurement_1", "order": 2, "label_zh": "第一次测量", "required_base_action": "measurement_action"},
+    {"id": "recording_1", "order": 3, "label_zh": "第一次记录", "required_base_action": "writing_action"},
+    {"id": "circuit_rewiring", "order": 4, "label_zh": "重新连线", "required_base_action": "wiring_action"},
+    {"id": "measurement_2", "order": 5, "label_zh": "第二次测量", "required_base_action": "measurement_action"},
+    {"id": "recording_2", "order": 6, "label_zh": "第二次记录", "required_base_action": "writing_action"},
+    {"id": "material_cleanup", "order": 7, "label_zh": "整理材料", "required_base_action": "cleanup_action", "absorbing_terminal": true}
+  ],
+  "state_machine_rules": [
+    "第一次测量后的短接线可以作为纠错回路，不自动进入第二轮。",
+    "形成持续新拓扑、出现换电池辅助事件或已有第一次记录时，提高重新连线假设得分。",
+    "两轮测量后统一书写时保留 batched_recording 诊断，同一窗口可供两组记录专项取证。",
+    "辅助动作不直接推进七阶段；换座位可作为终态确认的环境证据。",
+    "终端整理必须由多帧确认器确认，单个 cleanup_action 不足以截断时间线。",
+    "本版本仍没有 battery_change 七阶段；电池配置变化只作为辅助事件和评价 8 证据。"
+  ]
+}

@@ -62,6 +62,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--boundary-max-model-edge", type=int, default=480)
     parser.add_argument("--action-sample-interval-seconds", type=float, default=2.0)
     parser.add_argument("--action-max-model-edge", type=int, default=640)
+    parser.add_argument(
+        "--action-version",
+        choices=("v2", "v3"),
+        default="v2",
+        help="v2 is stable; v3 opts into adaptive sampling and weighted decoding.",
+    )
     return parser
 
 
@@ -78,8 +84,10 @@ def main(argv: list[str] | None = None) -> int:
     marker_root = run_root / "marker_filter"
     boundary_root = run_root / "experiment_boundary"
     action_root = run_root / "actions"
-    action_run_id = "v2"
+    action_run_id = args.action_version
     action_summary = action_root / action_run_id / "summary.json"
+    action_script = ROOT / "scripts" / f"qwen_experiment_action_hierarchical_{args.action_version}.py"
+    action_schema = ROOT / "configs" / "action_schemas" / f"resistance_7stage_no_battery_{args.action_version}.json"
     wiring_config = run_root / "generated_configs" / "wiring_sequence.json"
     phases = [
         (
@@ -105,14 +113,14 @@ def main(argv: list[str] | None = None) -> int:
             ],
         ),
         (
-            "03_action_v2",
+            f"03_action_{args.action_version}",
             [
                 sys.executable,
-                str(ROOT / "scripts" / "qwen_experiment_action_hierarchical_v2.py"),
+                str(action_script),
                 "--segment-source",
                 str(boundary_root / "summary.json"),
                 "--schema",
-                str(ROOT / "configs" / "action_schemas" / "resistance_7stage_no_battery_v2.json"),
+                str(action_schema),
                 "--output-root",
                 str(action_root),
                 "--run-id",
@@ -150,6 +158,7 @@ def main(argv: list[str] | None = None) -> int:
         "dry_run": bool(args.dry_run),
         "video_dir": str(args.video_dir.resolve()),
         "videos": [path.name for path in videos],
+        "action_version": args.action_version,
         "phases": [],
         "outputs": {
             "boundary_summary": str((boundary_root / "summary.json").resolve()),

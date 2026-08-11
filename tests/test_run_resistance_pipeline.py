@@ -56,6 +56,33 @@ class RunResistancePipelineTests(unittest.TestCase):
 
         self.assertEqual(["sample.webm"], [path.name for path in videos])
 
+    def test_v3_is_an_explicit_opt_in_for_the_one_command_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            video_dir = root / "videos"
+            video_dir.mkdir()
+            (video_dir / "anonymous.mp4").write_bytes(b"dry-run")
+            output_root = root / "outputs"
+            MODULE.main(
+                [
+                    "--video-dir",
+                    str(video_dir),
+                    "--output-root",
+                    str(output_root),
+                    "--run-id",
+                    "v3_plan",
+                    "--action-version",
+                    "v3",
+                    "--dry-run",
+                ]
+            )
+            report = json.loads((output_root / "v3_plan" / "run_report.json").read_text(encoding="utf-8"))
+        action_phase = report["phases"][2]
+        self.assertEqual("v3", report["action_version"])
+        self.assertEqual("03_action_v3", action_phase["phase"])
+        self.assertTrue(any("qwen_experiment_action_hierarchical_v3.py" in item for item in action_phase["command"]))
+        self.assertTrue(report["outputs"]["action_summary"].endswith("actions\\v3\\summary.json"))
+
 
 if __name__ == "__main__":
     unittest.main()

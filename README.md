@@ -38,6 +38,7 @@ flowchart LR
 |---|---|
 | 推荐七阶段动作分割 | `scripts/qwen_experiment_action_hierarchical_v2.py` |
 | 七阶段契约、提示词与 Reduce | `scripts/qwen_hierarchical_v1_contract.py`、`scripts/qwen_hierarchical_v1_prompts.py`、`scripts/qwen_hierarchical_v1_reduce.py` |
+| 实验性七阶段 v3 | `scripts/qwen_experiment_action_hierarchical_v3.py`、`scripts/qwen_hierarchical_v3_*.py` |
 | 任意新视频本地一键编排 | `scripts/run_resistance_pipeline.py` |
 | 从七阶段自动生成接线配置与稳定帧 | `scripts/generate_wiring_sequence_config.py` |
 | 评价 8 断开换电池组 | `scripts/run_resistance_disconnect_battery_sequence_v1.py` |
@@ -105,6 +106,15 @@ $env:QWEN_MODEL = "<your-model-name>"
 python scripts/run_resistance_pipeline.py `
   --video-dir data/videos `
   --output-root outputs/resistance_pipeline
+```
+
+默认动作分割仍使用稳定版 v2。要试验新版 v3，显式增加：
+
+```powershell
+python scripts/run_resistance_pipeline.py `
+  --video-dir data/videos `
+  --output-root outputs/resistance_pipeline `
+  --action-version v3
 ```
 
 先检查命令计划而不打开视频、不调用 Qwen：
@@ -178,6 +188,39 @@ python scripts/qwen_experiment_action_hierarchical_v2.py `
 ```
 
 `qwen_experiment_action_minute.py`、`qwen_experiment_action_minute_merge.py`、`qwen_experiment_action_segment.py` 和 `qwen_experiment_action_stepwise.py` 保留为经典对照与替换实现。
+
+### 3.1 试验七阶段动作分割 v3
+
+v3 是独立实验版，不覆盖 v1/v2 的代码、Schema 或输出目录。它保留相同七阶段主输出，新增以下机制：
+
+1. Map 可输出 `auxiliary_action`，将电池配置变化、换座位、闲聊、教师介入和离题行为保留为诊断，不强行塞进七阶段。
+2. 每个窗口保留固定 5 秒时间锚点，并把同一图片预算中的剩余帧分配到帧差和 HSV 变化较高的位置；CV 运动一致性只作诊断，不用固定权重覆盖 Qwen 结论。
+3. Reduce 后使用带权有向图 beam 解码。第一次测量后的短促接线可留在第一次循环；明确改接、新拓扑或电池配置变化会提高第二轮路径得分。
+4. 两轮测量后集中书写会标记 `batched_recording=true`，同一书写窗口可供第一组和第二组记录专项取证检索。
+5. `cleanup_action` 只是候选。程序额外发送整理前、中、后多帧；只有 `completed_cleanup=yes` 且之后未继续实验时才硬截断，否则恢复被暂时忽略的后续事件。
+6. `circuit_wiring -> measurement_1` 使用正向和反向两种提示词复核；相差超过 3 秒时保存 `boundary_uncertainty_seconds` 和两份模型原文。
+7. `result.json` 新增 `anomalous_events` 与 `downstream_hints.meter_reading_windows`，供诊断和读表流水线自动选窗。
+
+单独运行：
+
+```powershell
+python scripts/qwen_experiment_action_hierarchical_v3.py `
+  --segment-source outputs/experiment_boundary/summary.json `
+  --schema configs/action_schemas/resistance_7stage_no_battery_v3.json `
+  --output-root outputs/qwen_experiment_action_hierarchical_v3
+```
+
+只检查抽帧、时间水印和请求工件，不调用 Qwen：
+
+```powershell
+python scripts/qwen_experiment_action_hierarchical_v3.py `
+  --segment-source outputs/experiment_boundary/summary.json `
+  --output-root outputs/qwen_experiment_action_hierarchical_v3 `
+  --run-id prepare_check `
+  --prepare-only
+```
+
+v3 的模型图片预算不高于相同 `--sample-interval-seconds` 下的均匀采样预算，但 0.5 秒低清活动预扫描会增加本地解码时间。当前推荐先作为 A/B 实验版运行，稳定生产基线仍使用 v2。
 
 ### 4. Rubric 独立取证
 
