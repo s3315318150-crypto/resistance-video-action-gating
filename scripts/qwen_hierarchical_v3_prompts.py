@@ -31,6 +31,7 @@ def build_map_prompt(video_id: str, window: dict[str, Any], frames: list[dict[st
         "人坐着不动、交谈、寻找材料、身体遮挡、画外动作或仅凭实验常规推测，都不能补造动作。",
         "人坐着不动或画外动作不能补造；直接可见的交谈、换座位、教师介入和离题活动应报告为 auxiliary_action。",
     )
+    prompt += "\n\n器材事实：本实验没有滑动变阻器。不得输出或在 evidence 中描述滑动变阻器、滑片或调节滑片。"
     return prompt
 
 
@@ -86,6 +87,75 @@ def build_cleanup_confirmation_prompt(
   "evidence": "不超过180字，只描述直接可见变化",
   "confidence": 0.0
 }}"""
+
+
+def build_measurement_binary_prompt(
+    video_id: str,
+    window: dict[str, Any],
+    frames: list[dict[str, Any]],
+) -> str:
+    frame_ids = [str(frame["image_id"]) for frame in frames]
+    return f"""你正在独立判断伏安法测电阻视频 `{video_id}` 的窗口 `{window['window_id']}` 是否出现测量动作。
+
+图片按时间先后排列，合法 FRAME ID 为：{', '.join(frame_ids)}。
+
+measurement_observed=yes 必须有直接视觉证据，至少满足一项：
+1. 学生操作开关后观察电压表或电流表；
+2. 学生保持电路接通状态并持续观察表盘、读取示数；
+3. 相邻帧显示手从开关/仪表附近移开，随后目光或身体朝向仪表，形成可见的读数过程。
+
+只要任意一组相邻帧直接满足上述测量证据，就必须回答 yes，不得因为同一窗口还包含接线或书写而回答 no。只有检查全部图片后，确认可见动作始终只是插拔/整理导线、纸上书写或摆放器材，才回答 no。画面不理想时仍按最可能结果二选一，并引用最有信息的帧说明依据。本实验没有滑动变阻器，不得描述“调节滑片”或用它推断测量。不要根据实验步骤或前后动作补造画面中未显示的测量。
+
+只输出一个 JSON：
+{{
+  "window_id": "{window['window_id']}",
+  "measurement_observed": "yes" | "no",
+  "observations": [
+    {{
+      "first_frame_id": "{frame_ids[0]}",
+      "last_frame_id": "{frame_ids[-1]}",
+      "representative_frame_id": "{frame_ids[0]}",
+      "evidence": "不超过160字，只写直接可见的测量证据",
+      "confidence": 0.0
+    }}
+  ],
+  "decision_evidence_frame_ids": ["{frame_ids[0]}"],
+  "decision_evidence": "不超过160字；yes写直接测量证据，no写遍历图片后看到的非测量动作",
+  "confidence": 0.0
+}}
+
+若回答 no，observations 必须是空数组，但 decision_evidence_frame_ids 和 decision_evidence 仍必须填写。"""
+
+
+def build_endpoint_cleanup_binary_prompt(
+    video_id: str,
+    frames: list[dict[str, Any]],
+) -> str:
+    frame_ids = [str(frame["image_id"]) for frame in frames]
+    return f"""你正在独立判断伏安法测电阻视频 `{video_id}` 的末尾片段是否已经完成最终整理。
+
+图片按时间先后排列，合法 FRAME ID 为：{', '.join(frame_ids)}。必须比较前后状态。
+
+cleanup_completed=yes 必须直接看到至少一种不可逆结束状态，并且其后不再继续实验：
+1. 多根导线已拆下，桌面测量区明显清空或器材已集中归拢；
+2. 橙红色仪器已经放回桌子左上角；
+3. 学生换座位/换人，或出现结束性闲聊且不再操作实验器材。
+
+只移动一件仪器、拔一根导线、短暂挪动物品、纠错改线，或整理后又继续接线/测量/书写，必须回答 no。不要要求器材盒，桌子左上角归位即可。本实验没有滑动变阻器，不得在 evidence 中补造该器材或滑片。
+
+只输出一个 JSON：
+{{
+  "cleanup_completed": "yes" | "no",
+  "first_cleanup_frame_id": "{frame_ids[0]}" | null,
+  "last_cleanup_frame_id": "{frame_ids[-1]}" | null,
+  "representative_frame_id": "{frame_ids[0]}" | null,
+  "experiment_activity_continues_afterward": "yes" | "no",
+  "evidence_frame_ids": ["{frame_ids[0]}"],
+  "evidence": "不超过180字，只描述直接可见的前后变化",
+  "confidence": 0.0
+}}
+
+若回答 no，三个 cleanup FRAME ID 必须为 null。"""
 
 
 def build_reverse_boundary_prompt(

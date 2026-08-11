@@ -16,12 +16,14 @@ import qwen_hierarchical_v1_reduce as base_reduce
 import qwen_hierarchical_v3_contract as v3_contract
 from qwen_hierarchical_v3_prompts import (
     build_cleanup_confirmation_prompt,
+    build_endpoint_cleanup_binary_prompt,
     build_map_prompt,
+    build_measurement_binary_prompt,
     build_reduce_prompt,
     build_reverse_boundary_prompt,
 )
 from qwen_hierarchical_v3_reduce import assign_seven_stages_v3, anomalous_events_from_assigned
-from qwen_hierarchical_v3_sampling import adaptive_frame_numbers, motion_consistency_score
+from qwen_hierarchical_v3_sampling import adaptive_frame_numbers, motion_consistency_score, scan_activity
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -59,10 +61,11 @@ def _sampling_summary(diagnostic: dict[str, Any]) -> dict[str, Any]:
 
 
 def prepare_video_v3(provenance: dict[str, Any], video_dir: Path, args: Any) -> dict[str, Any]:
-    """Replace uniform Map frames with fixed anchors plus activity peaks at equal budget."""
+    """Replace uniform Map frames with percentile-normalized bucketed TCS."""
     prepared = _ORIGINALS["prepare_video"](provenance, video_dir, args)
     uniform_baseline_count = len(prepared["frame_registry"])
     source = Path(str(prepared["manifest"]["source_video"]))
+    full_activity = scan_activity(source, float(prepared["fixed_start"]), float(prepared["fixed_end"]))
     activity_by_window: dict[str, list[dict[str, float]]] = {}
     diagnostics: list[dict[str, Any]] = []
     for window in prepared["prepared_windows"]:
@@ -79,6 +82,11 @@ def prepare_video_v3(provenance: dict[str, Any], video_dir: Path, args: Any) -> 
             frame_numbers = [int(item["frame_number"]) for item in old_frames]
         else:
             start, end = (float(value) for value in window["window_seconds"])
+            window_activity = [
+                item
+                for item in full_activity
+                if start - 1e-9 <= float(item["timestamp_seconds"]) <= end + 1e-9
+            ]
             frame_numbers, diagnostic = adaptive_frame_numbers(
                 source,
                 start,
@@ -86,6 +94,7 @@ def prepare_video_v3(provenance: dict[str, Any], video_dir: Path, args: Any) -> 
                 float(prepared["fps"]),
                 int(prepared["frame_count"]),
                 budget,
+                activity_samples=window_activity,
             )
             engine._extract_source_frames(
                 prepared["manifest"],
@@ -126,7 +135,9 @@ def prepare_video_v3(provenance: dict[str, Any], video_dir: Path, args: Any) -> 
         prepared["frame_registry"].pop(frame_number)
         discarded_uniform_frames += 1
     prepared["source_record"]["tcs_sampling"] = {
-        "strategy": "fixed_5s_anchors_plus_activity_peaks",
+        "strategy": "percentile_bucketed_tcs_with_low_motion_reserve",
+        "full_locked_interval_activity_scan_count": 1,
+        "full_locked_interval_activity_sample_count": len(full_activity),
         "same_per_window_image_budget_as_uniform_sampling": True,
         "windows": diagnostics,
         "uniform_baseline_extracted_frame_count": uniform_baseline_count,
@@ -153,8 +164,303 @@ def _nearest_activity(samples: list[dict[str, float]], timestamp: float) -> floa
     return min(1.0, max(0.0, float(nearest.get("activity_score", 0.5))))
 
 
+def _valid_confidence(value: Any) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and 0.0 <= float(value) <= 1.0
+    )
+
+
+def _measurement_binary_frames(window: dict[str, Any]) -> list[dict[str, Any]]:
+    frames = list(window["frames"])
+    timestamps = list(
+        window.get("tcs_sampling", {}).get("measurement_candidate_timestamps_seconds", [])
+    )
+    if not timestamps:
+        return frames
+    selected: dict[str, dict[str, Any]] = {}
+    for timestamp in timestamps:
+        frame = min(frames, key=lambda item: abs(float(item["timestamp_seconds"]) - float(timestamp)))
+        selected[str(frame["image_id"])] = frame
+    return sorted(selected.values(), key=lambda item: int(item["frame_number"]))
+
+
+def _validate_measurement_binary(
+    value: Any,
+    window_id: str,
+    frames: list[dict[str, Any]],
+) -> list[str]:
+    if not isinstance(value, dict):
+        return ["measurement_binary_not_object"]
+    errors: list[str] = []
+    known = {str(frame["image_id"]): index for index, frame in enumerate(frames)}
+    if value.get("window_id") != window_id:
+        errors.append("window_id_mismatch")
+    observed = value.get("measurement_observed")
+    if observed not in {"yes", "no"}:
+        errors.append("measurement_observed_invalid")
+    observations = value.get("observations")
+    if not isinstance(observations, list) or len(observations) > 8:
+        errors.append("observations_invalid")
+        observations = []
+    if observed == "yes" and not observations:
+        errors.append("yes_without_observation")
+    if observed == "no" and observations:
+        errors.append("no_with_observation")
+    decision_evidence_ids = value.get("decision_evidence_frame_ids")
+    if (
+        not isinstance(decision_evidence_ids, list)
+        or not decision_evidence_ids
+        or any(not isinstance(item, str) or item not in known for item in decision_evidence_ids)
+    ):
+        errors.append("decision_evidence_frame_ids_invalid")
+    if not isinstance(value.get("decision_evidence"), str) or not str(value.get("decision_evidence", "")).strip():
+        errors.append("decision_evidence_invalid")
+    for index, item in enumerate(observations):
+        prefix = f"observation_{index}"
+        if not isinstance(item, dict):
+            errors.append(prefix + "_not_object")
+            continue
+        first_id = item.get("first_frame_id")
+        last_id = item.get("last_frame_id")
+        representative_id = item.get("representative_frame_id")
+        first_valid = isinstance(first_id, str) and first_id in known
+        last_valid = isinstance(last_id, str) and last_id in known
+        representative_valid = isinstance(representative_id, str) and representative_id in known
+        if not first_valid:
+            errors.append(prefix + "_first_frame_invalid")
+        if not last_valid:
+            errors.append(prefix + "_last_frame_invalid")
+        if not representative_valid:
+            errors.append(prefix + "_representative_frame_invalid")
+        if first_valid and last_valid and known[str(first_id)] > known[str(last_id)]:
+            errors.append(prefix + "_frame_order_invalid")
+        if (
+            first_valid
+            and last_valid
+            and representative_valid
+            and not known[str(first_id)] <= known[str(representative_id)] <= known[str(last_id)]
+        ):
+            errors.append(prefix + "_representative_outside_interval")
+        if not isinstance(item.get("evidence"), str) or not str(item.get("evidence", "")).strip():
+            errors.append(prefix + "_evidence_invalid")
+        if not _valid_confidence(item.get("confidence")):
+            errors.append(prefix + "_confidence_invalid")
+    if not _valid_confidence(value.get("confidence")):
+        errors.append("confidence_invalid")
+    return sorted(set(errors))
+
+
+def _measurement_binary_events(
+    value: dict[str, Any],
+    window_id: str,
+    frames: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if value.get("measurement_observed") != "yes":
+        return []
+    by_id = {str(frame["image_id"]): frame for frame in frames}
+    events: list[dict[str, Any]] = []
+    for index, observation in enumerate(value.get("observations", []), start=1):
+        first = by_id[str(observation["first_frame_id"])]
+        last = by_id[str(observation["last_frame_id"])]
+        representative = by_id[str(observation["representative_frame_id"])]
+        events.append(
+            {
+                "source_event_id": f"{window_id}_measurement_binary_e{index:02d}",
+                "window_id": window_id,
+                "action_type": "measurement_action",
+                "first_frame_id": first["image_id"],
+                "last_frame_id": last["image_id"],
+                "representative_frame_id": representative["image_id"],
+                "first_frame_number": int(first["frame_number"]),
+                "last_frame_number": int(last["frame_number"]),
+                "representative_frame_number": int(representative["frame_number"]),
+                "first_seconds": float(first["timestamp_seconds"]),
+                "last_seconds": float(last["timestamp_seconds"]),
+                "representative_seconds": float(representative["timestamp_seconds"]),
+                "evidence": str(observation["evidence"]),
+                "confidence": float(observation["confidence"]),
+                "independent_binary_confirmation": "measurement",
+            }
+        )
+    return events
+
+
+def _run_measurement_binary(
+    prepared: dict[str, Any],
+    window: dict[str, Any],
+    client: Any,
+    args: Any,
+) -> tuple[list[dict[str, Any]], dict[str, Any], list[str]]:
+    window_id = str(window["window_id"])
+    frames = _measurement_binary_frames(window)
+    prompt = build_measurement_binary_prompt(str(prepared["video_id"]), window, frames)
+    output_dir = prepared["video_dir"] / "map" / "windows" / window_id / "measurement_binary"
+    contract.write_json_atomic(
+        output_dir / "input.json",
+        {"window_id": window_id, "input_frames": frames, "frame_selection": "5s_anchors_plus_low_motion_budget"},
+    )
+    engine._write_text(output_dir / "prompt.txt", prompt)
+    attempts: list[dict[str, Any]] = []
+    parsed: dict[str, Any] | None = None
+    errors: list[str] = []
+    for attempt_index in range(args.max_attempts):
+        current_prompt = prompt
+        if attempt_index:
+            current_prompt += "\n\n上次输出格式错误：" + ", ".join(errors) + "。请严格按原 JSON 重答。"
+        raw = engine._attempt_qwen(client, current_prompt, frames, args.map_max_tokens)
+        candidate = raw.get("parsed_result")
+        parsed = candidate if isinstance(candidate, dict) else None
+        errors = _validate_measurement_binary(parsed, window_id, frames)
+        attempts.append({"attempt_index": attempt_index + 1, "qwen": raw, "validation_errors": errors})
+        if not errors:
+            break
+    events = _measurement_binary_events(parsed, window_id, frames) if parsed is not None and not errors else []
+    result = {
+        "window_id": window_id,
+        "valid": not errors,
+        "validation_errors": errors,
+        "attempts": attempts,
+        "parsed_result": parsed,
+        "normalized_events": events,
+    }
+    contract.write_json_atomic(output_dir / "result.json", result)
+    return events, result, ([f"measurement_binary_invalid:{window_id}:{','.join(errors)}"] if errors else [])
+
+
+def _validate_endpoint_cleanup_binary(value: Any, frames: list[dict[str, Any]]) -> list[str]:
+    if not isinstance(value, dict):
+        return ["endpoint_cleanup_binary_not_object"]
+    errors: list[str] = []
+    known = {str(frame["image_id"]): index for index, frame in enumerate(frames)}
+    completed = value.get("cleanup_completed")
+    if completed not in {"yes", "no"}:
+        errors.append("cleanup_completed_invalid")
+    if value.get("experiment_activity_continues_afterward") not in {"yes", "no"}:
+        errors.append("experiment_activity_continues_afterward_invalid")
+    frame_fields = ("first_cleanup_frame_id", "last_cleanup_frame_id", "representative_frame_id")
+    ids = [value.get(field) for field in frame_fields]
+    if completed == "yes" and any(not isinstance(item, str) or item not in known for item in ids):
+        errors.append("cleanup_frame_ids_invalid")
+    if completed == "no" and any(item is not None for item in ids):
+        errors.append("no_with_cleanup_frame_ids")
+    if completed == "yes" and all(isinstance(item, str) and item in known for item in ids):
+        first_id, last_id, representative_id = (str(item) for item in ids)
+        if known[first_id] > known[last_id]:
+            errors.append("cleanup_frame_order_invalid")
+        if not known[first_id] <= known[representative_id] <= known[last_id]:
+            errors.append("cleanup_representative_outside_interval")
+    evidence_ids = value.get("evidence_frame_ids")
+    if not isinstance(evidence_ids, list) or not evidence_ids or any(item not in known for item in evidence_ids):
+        errors.append("evidence_frame_ids_invalid")
+    if not isinstance(value.get("evidence"), str) or not str(value.get("evidence", "")).strip():
+        errors.append("evidence_invalid")
+    if not _valid_confidence(value.get("confidence")):
+        errors.append("confidence_invalid")
+    return sorted(set(errors))
+
+
+def _run_endpoint_cleanup_binary(
+    prepared: dict[str, Any],
+    client: Any,
+    args: Any,
+) -> tuple[list[dict[str, Any]], dict[str, Any], list[str]]:
+    start = max(float(prepared["fixed_start"]), float(prepared["fixed_end"]) - 45.0)
+    numbers = engine._frame_numbers_for_range(
+        start,
+        float(prepared["fixed_end"]),
+        2.0,
+        float(prepared["fps"]),
+        int(prepared["frame_count"]),
+    )
+    engine._extract_source_frames(
+        prepared["manifest"], numbers, prepared["frames_dir"], args.max_model_edge, prepared["frame_registry"]
+    )
+    frames = [prepared["frame_registry"][number] for number in numbers]
+    prompt = build_endpoint_cleanup_binary_prompt(str(prepared["video_id"]), frames)
+    output_dir = prepared["video_dir"] / "map" / "endpoint_cleanup_binary"
+    contract.write_json_atomic(
+        output_dir / "input.json",
+        {"range_seconds": [start, float(prepared["fixed_end"])], "sample_interval_seconds": 2.0, "input_frames": frames},
+    )
+    engine._write_text(output_dir / "prompt.txt", prompt)
+    attempts: list[dict[str, Any]] = []
+    parsed: dict[str, Any] | None = None
+    errors: list[str] = []
+    for attempt_index in range(args.max_attempts):
+        current_prompt = prompt
+        if attempt_index:
+            current_prompt += "\n\n上次输出格式错误：" + ", ".join(errors) + "。请严格按原 JSON 重答。"
+        raw = engine._attempt_qwen(client, current_prompt, frames, args.map_max_tokens)
+        candidate = raw.get("parsed_result")
+        parsed = candidate if isinstance(candidate, dict) else None
+        errors = _validate_endpoint_cleanup_binary(parsed, frames)
+        attempts.append({"attempt_index": attempt_index + 1, "qwen": raw, "validation_errors": errors})
+        if not errors:
+            break
+    events: list[dict[str, Any]] = []
+    if (
+        parsed is not None
+        and not errors
+        and parsed.get("cleanup_completed") == "yes"
+        and parsed.get("experiment_activity_continues_afterward") == "no"
+    ):
+        by_id = {str(frame["image_id"]): frame for frame in frames}
+        first = by_id[str(parsed["first_cleanup_frame_id"])]
+        last = by_id[str(parsed["last_cleanup_frame_id"])]
+        representative = by_id[str(parsed["representative_frame_id"])]
+        events.append(
+            {
+                "source_event_id": "endpoint_cleanup_binary_e01",
+                "window_id": "endpoint_cleanup",
+                "action_type": "cleanup_action",
+                "first_frame_id": first["image_id"],
+                "last_frame_id": last["image_id"],
+                "representative_frame_id": representative["image_id"],
+                "first_frame_number": int(first["frame_number"]),
+                "last_frame_number": int(last["frame_number"]),
+                "representative_frame_number": int(representative["frame_number"]),
+                "first_seconds": float(first["timestamp_seconds"]),
+                "last_seconds": float(last["timestamp_seconds"]),
+                "representative_seconds": float(representative["timestamp_seconds"]),
+                "evidence": str(parsed["evidence"]),
+                "confidence": float(parsed["confidence"]),
+                "independent_binary_confirmation": "endpoint_cleanup",
+            }
+        )
+    result = {
+        "valid": not errors,
+        "validation_errors": errors,
+        "attempts": attempts,
+        "parsed_result": parsed,
+        "normalized_events": events,
+    }
+    contract.write_json_atomic(output_dir / "result.json", result)
+    review = [f"endpoint_cleanup_binary_invalid:{','.join(errors)}"] if errors else []
+    return events, result, review
+
+
 def run_map_v3(prepared: dict[str, Any], client: Any, args: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
     events, window_results, review = _ORIGINALS["run_map"](prepared, client, args)
+    results_by_window = {str(item["window_id"]): item for item in window_results}
+    measurement_binary_results: list[dict[str, Any]] = []
+    for window in prepared["prepared_windows"]:
+        binary_events, binary_result, binary_review = _run_measurement_binary(prepared, window, client, args)
+        measurement_binary_results.append(binary_result)
+        events.extend(binary_events)
+        review.extend(binary_review)
+        window_result = results_by_window[str(window["window_id"])]
+        window_result["measurement_binary"] = binary_result
+        contract.write_json_atomic(
+            prepared["video_dir"] / "map" / "windows" / str(window["window_id"]) / "result.json",
+            window_result,
+        )
+    cleanup_events, cleanup_result, cleanup_review = _run_endpoint_cleanup_binary(prepared, client, args)
+    events.extend(cleanup_events)
+    review.extend(cleanup_review)
+    prepared["_v3_measurement_binary_results"] = measurement_binary_results
+    prepared["_v3_endpoint_cleanup_binary"] = cleanup_result
     by_window = prepared.get("_v3_activity_by_window", {})
     for event in events:
         normalized_motion = _nearest_activity(
@@ -411,6 +717,86 @@ def _record_confirmed_post_terminal_noise(
     result.setdefault("recovery", {}).setdefault("ignored_noise_events", []).extend(additions)
 
 
+def _promote_endpoint_cleanup_candidate(
+    canonical_events: list[dict[str, Any]],
+    selected: list[dict[str, Any]],
+    result: dict[str, Any],
+    args: Any,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    candidates = [
+        event
+        for event in canonical_events
+        if event.get("action_type") == "cleanup_action"
+        and (
+            event.get("independent_binary_confirmation") == "endpoint_cleanup"
+            or "endpoint_cleanup_binary_e01" in event.get("source_event_ids", [])
+        )
+    ]
+    if not candidates:
+        return selected, None
+    terminal = min(candidates, key=lambda item: int(item["first_frame_number"]))
+    terminal_id = str(terminal["event_id"])
+    terminal_start = int(terminal["first_frame_number"])
+    accepted_ids = {str(event["event_id"]) for event in selected}
+    accepted_ids.add(terminal_id)
+    prior_effective = result.get("effective_parsed_result")
+    prior_rejections = {
+        str(item.get("event_id")): item
+        for item in (prior_effective.get("rejected_events", []) if isinstance(prior_effective, dict) else [])
+        if isinstance(item, dict) and isinstance(item.get("event_id"), str)
+    }
+    rejected: list[dict[str, Any]] = []
+    for event in canonical_events:
+        event_id = str(event["event_id"])
+        if event_id == terminal_id:
+            continue
+        if int(event["last_frame_number"]) >= terminal_start:
+            accepted_ids.discard(event_id)
+            rejected.append(
+                {
+                    "event_id": event_id,
+                    "reason": "post_terminal_cleanup",
+                    "explanation": "独立末尾整理二分类确认后，先隔离与整理开始重叠或更晚的事件。",
+                }
+            )
+        elif event_id not in accepted_ids:
+            rejected.append(
+                prior_rejections.get(
+                    event_id,
+                    {"event_id": event_id, "reason": "other", "explanation": "保留 Reduce 的既有局部选择。"},
+                )
+            )
+    effective = {
+        "accepted_event_ids": [
+            str(event["event_id"])
+            for event in canonical_events
+            if str(event["event_id"]) in accepted_ids
+        ],
+        "rejected_events": rejected,
+        "conflicts": list(prior_effective.get("conflicts", [])) if isinstance(prior_effective, dict) else [],
+        "terminal_cleanup_event_id": terminal_id,
+        "confidence": float(terminal.get("confidence", 0.0)),
+        "uncertainty": "",
+        "ignored_noise_events": [],
+    }
+    promoted, selection = select_events_v3(
+        canonical_events,
+        effective,
+        preserve_equal_confidence=args.reduce_recovery_policy == "local_partial",
+    )
+    result["effective_parsed_result"] = effective
+    result["selection"] = selection
+    result["selection"]["terminal_cleanup_event_id"] = terminal_id
+    result["accepted_events"] = promoted
+    result.setdefault("recovery", {}).setdefault("repairs", []).append(
+        {
+            "reason": "endpoint_cleanup_binary_promoted_to_terminal_candidate",
+            "event_id": terminal_id,
+        }
+    )
+    return promoted, terminal
+
+
 def run_reduce_v3(
     prepared: dict[str, Any],
     map_events: list[dict[str, Any]],
@@ -421,6 +807,14 @@ def run_reduce_v3(
     terminal_id = result.get("selection", {}).get("terminal_cleanup_event_id")
     canonical_events = deduplicate_map_events_v3(map_events)
     terminal = next((event for event in canonical_events if str(event["event_id"]) == terminal_id), None)
+    if not isinstance(terminal_id, str) or terminal is None:
+        selected, terminal = _promote_endpoint_cleanup_candidate(
+            canonical_events,
+            selected,
+            result,
+            args,
+        )
+        terminal_id = str(terminal["event_id"]) if terminal is not None else None
     if not isinstance(terminal_id, str) or terminal is None:
         result["cleanup_confirmation"] = {"required": False, "reason": "no_terminal_cleanup_candidate"}
         contract.write_json_atomic(prepared["video_dir"] / "reduce" / "result.json", result)
@@ -595,7 +989,19 @@ def analyze_prepared_video_v3(prepared: dict[str, Any], client: Any, schema: dic
         "meter_reading_windows": build_meter_reading_windows(result),
         "batched_recording": bool(state["decoder"].get("batched_recording")),
     }
-    result["sampling"]["map_strategy"] = "fixed_5s_anchors_plus_activity_peaks_equal_budget"
+    measurement_results = list(prepared.get("_v3_measurement_binary_results", []))
+    result["map"]["measurement_binary"] = {
+        "window_count": len(measurement_results),
+        "valid_window_count": sum(1 for item in measurement_results if item.get("valid")),
+        "observed_window_count": sum(
+            1
+            for item in measurement_results
+            if isinstance(item.get("parsed_result"), dict)
+            and item["parsed_result"].get("measurement_observed") == "yes"
+        ),
+    }
+    result["map"]["endpoint_cleanup_binary"] = prepared.get("_v3_endpoint_cleanup_binary", {})
+    result["sampling"]["map_strategy"] = "percentile_bucketed_tcs_with_low_motion_reserve_equal_budget"
     contract.write_json_atomic(prepared["video_dir"] / "result.json", result)
     return result
 

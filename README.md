@@ -194,12 +194,14 @@ python scripts/qwen_experiment_action_hierarchical_v2.py `
 v3 是独立实验版，不覆盖 v1/v2 的代码、Schema 或输出目录。它保留相同七阶段主输出，新增以下机制：
 
 1. Map 可输出 `auxiliary_action`，将电池配置变化、换座位、闲聊、教师介入和离题行为保留为诊断，不强行塞进七阶段。
-2. 每个窗口保留固定 5 秒时间锚点，并把同一图片预算中的剩余帧分配到帧差和 HSV 变化较高的位置；CV 运动一致性只作诊断，不用固定权重覆盖 Qwen 结论。
-3. Reduce 后使用带权有向图 beam 解码。第一次测量后的短促接线可留在第一次循环；明确改接、新拓扑或电池配置变化会提高第二轮路径得分。
-4. 两轮测量后集中书写会标记 `batched_recording=true`，同一书写窗口可供第一组和第二组记录专项取证检索。
-5. `cleanup_action` 只是候选。程序额外发送整理前、中、后多帧；只有 `completed_cleanup=yes` 且之后未继续实验时才硬截断，否则恢复被暂时忽略的后续事件。
-6. `circuit_wiring -> measurement_1` 使用正向和反向两种提示词复核；相差超过 3 秒时保存 `boundary_uncertainty_seconds` 和两份模型原文。
-7. `result.json` 新增 `anomalous_events` 与 `downstream_hints.meter_reading_windows`，供诊断和读表流水线自动选窗。
+2. TCS 对整个锁定区间只做一次 0.5 秒低清预扫描；每个窗口按 P20/P90 归一化运动分数，在时间桶之间轮询选峰，并把额外预算按 60% 高运动、40% 低运动分配，同时保留固定 5 秒锚点。
+3. 每个 Map 窗口增加一次独立测量二分类。它优先检查 5 秒锚点和低运动帧，补充容易被高运动选帧漏掉的静止观察、读表和开关操作；`yes/no` 都必须引用证据帧并解释。本实验不存在滑动变阻器，提示词禁止补造调节滑片。
+4. 视频最后 45 秒增加一次独立整理二分类，每 2 秒取帧。确认完成态后生成标准 `cleanup_action` 候选；即使 Reduce 的文本结果遗漏该候选，程序也会先晋升为待复核终态，再发送整理前、中、后多帧确认，未通过时恢复后续事件。
+5. Reduce 后使用带权有向图 beam 解码。第一次测量后的短促接线可留在第一次循环；明确改接、新拓扑或电池配置变化会提高第二轮路径得分。
+6. `recording_2` 必须先观察到 `measurement_2`。状态图允许 `recording_2 -> measurement_2 -> recording_2` 的局部回退，但对回退施加 `-0.2` 惩罚并在事件中保存转移原因。
+7. 两轮测量后集中书写会标记 `batched_recording=true`，同一书写窗口可供第一组和第二组记录专项取证检索。
+8. `circuit_wiring -> measurement_1` 使用正向和反向两种提示词复核；相差超过 3 秒时保存 `boundary_uncertainty_seconds` 和两份模型原文。
+9. `result.json` 新增 `anomalous_events`、独立二分类诊断和 `downstream_hints.meter_reading_windows`，供诊断和读表流水线自动选窗。
 
 单独运行：
 
@@ -220,7 +222,7 @@ python scripts/qwen_experiment_action_hierarchical_v3.py `
   --prepare-only
 ```
 
-v3 的模型图片预算不高于相同 `--sample-interval-seconds` 下的均匀采样预算，但 0.5 秒低清活动预扫描会增加本地解码时间。当前推荐先作为 A/B 实验版运行，稳定生产基线仍使用 v2。
+v3 的主 Map 图片预算不高于相同 `--sample-interval-seconds` 下的均匀采样预算；独立测量二分类会复用已抽取帧，末尾整理二分类会额外提取最后 45 秒的 2 秒帧。0.5 秒低清活动预扫描会增加本地解码时间。当前推荐先作为 A/B 实验版运行，稳定生产基线仍使用 v2。
 
 ### 4. Rubric 独立取证
 

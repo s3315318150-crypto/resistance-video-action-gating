@@ -54,6 +54,7 @@ def _beam_key(node: dict[str, Any]) -> tuple[Any, ...]:
     return (
         int(node["phase"]),
         bool(node["recording_1_observed"]),
+        bool(node["recording_2_observed"]),
         bool(node["batched_recording"]),
         round(float(node.get("formal_context_until", -1.0)), 1),
     )
@@ -111,6 +112,7 @@ def assign_seven_stages_v3(
             "score": 0.0,
             "assigned": [],
             "recording_1_observed": False,
+            "recording_2_observed": False,
             "batched_recording": False,
             "last_measurement_duration": None,
             "formal_context_until": -1.0,
@@ -223,6 +225,22 @@ def assign_seven_stages_v3(
                             last_measurement_duration=duration,
                         )
                     )
+                elif phase == 5:
+                    expanded.append(
+                        _advance(
+                            node,
+                            _assigned_item(
+                                event,
+                                "measurement_2",
+                                "penalized_return_to_measurement_2_after_recording_2",
+                                decoder_transition="recording_2_to_measurement_2",
+                                transition_penalty=-0.2,
+                            ),
+                            4,
+                            -0.2,
+                            last_measurement_duration=duration,
+                        )
+                    )
                 else:
                     expanded.append(_advance(node, _assigned_item(event, None, "measurement_after_recording_2"), phase, -0.4))
                 continue
@@ -237,21 +255,39 @@ def assign_seven_stages_v3(
                             recording_1_observed=True,
                         )
                     )
-                elif phase in (3, 4, 5):
+                elif phase == 3:
+                    expanded.append(
+                        _advance(
+                            node,
+                            _assigned_item(
+                                event,
+                                None,
+                                "pending_writing_before_measurement_2",
+                                pending_stage="recording_2",
+                            ),
+                            3,
+                            -0.25,
+                        )
+                    )
+                elif phase in (4, 5):
                     batched = not bool(node["recording_1_observed"])
+                    repeated = bool(node["recording_2_observed"])
                     expanded.append(
                         _advance(
                             node,
                             _assigned_item(
                                 event,
                                 "recording_2",
-                                "batched_writing_after_two_measurements" if batched else "writing_after_second_measurement",
+                                "repeated_recording_2_after_measurement_return"
+                                if repeated
+                                else ("batched_writing_after_two_measurements" if batched else "writing_after_second_measurement"),
                                 batched_recording=batched,
                                 recording_search_aliases=["recording_1", "recording_2"] if batched else ["recording_2"],
                             ),
                             5,
-                            0.8 if phase >= 4 else 0.2,
+                            0.7 if repeated else 0.8,
                             batched_recording=bool(node["batched_recording"]) or batched,
+                            recording_2_observed=True,
                         )
                     )
                 continue
@@ -277,7 +313,14 @@ def assign_seven_stages_v3(
             "confidence": item["confidence"],
             "assignment_reason": item["assignment_reason"],
         }
-        for key in ("decoder_hypothesis", "batched_recording", "recording_search_aliases"):
+        for key in (
+            "decoder_hypothesis",
+            "batched_recording",
+            "recording_search_aliases",
+            "decoder_transition",
+            "transition_penalty",
+            "pending_stage",
+        ):
             if key in item:
                 interval[key] = item[key]
         observed_intervals.append(interval)
@@ -291,6 +334,7 @@ def assign_seven_stages_v3(
             "phase": int(node["phase"]),
             "score": round(float(node["score"]), 6),
             "recording_1_observed": bool(node["recording_1_observed"]),
+            "recording_2_observed": bool(node["recording_2_observed"]),
             "batched_recording": bool(node["batched_recording"]),
         }
         for node in sorted(nodes, key=lambda item: float(item["score"]), reverse=True)

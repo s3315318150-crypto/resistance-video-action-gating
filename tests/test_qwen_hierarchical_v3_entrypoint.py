@@ -126,7 +126,9 @@ class HierarchicalV3EntrypointTests(unittest.TestCase):
                 max_model_edge=64,
             )
             v3.bind_v3_identity()
-            prepared = v3.prepare_video_v3(provenance, root / "prepared", args)
+            with patch.object(v3, "scan_activity", wraps=v3.scan_activity) as activity_scan:
+                prepared = v3.prepare_video_v3(provenance, root / "prepared", args)
+            self.assertEqual(1, activity_scan.call_count)
             source_record = prepared["source_record"]
             image_files = list((root / "prepared" / "frames" / "source").glob("*.jpg"))
         self.assertEqual(source_record["unique_source_frame_count"], len(image_files))
@@ -135,6 +137,132 @@ class HierarchicalV3EntrypointTests(unittest.TestCase):
             source_record["window_frame_reference_count"] - source_record["model_selected_unique_frame_count"],
             source_record["overlap_reference_savings"],
         )
+
+    def test_measurement_binary_yes_becomes_standard_measurement_event(self) -> None:
+        frames = [
+            {"image_id": "frame_000100", "frame_number": 100, "timestamp_seconds": 10.0},
+            {"image_id": "frame_000120", "frame_number": 120, "timestamp_seconds": 12.0},
+            {"image_id": "frame_000140", "frame_number": 140, "timestamp_seconds": 14.0},
+        ]
+        value = {
+            "window_id": "w001",
+            "measurement_observed": "yes",
+            "observations": [
+                {
+                    "first_frame_id": "frame_000100",
+                    "last_frame_id": "frame_000140",
+                    "representative_frame_id": "frame_000120",
+                    "evidence": "学生操作开关后持续观察电表表盘。",
+                    "confidence": 0.86,
+                }
+            ],
+            "decision_evidence_frame_ids": ["frame_000100", "frame_000120"],
+            "decision_evidence": "开关操作后学生视线持续朝向电表。",
+            "confidence": 0.86,
+        }
+        self.assertEqual([], v3._validate_measurement_binary(value, "w001", frames))
+        events = v3._measurement_binary_events(value, "w001", frames)
+        self.assertEqual(1, len(events))
+        self.assertEqual("measurement_action", events[0]["action_type"])
+        self.assertEqual("measurement", events[0]["independent_binary_confirmation"])
+        no_value = {
+            "window_id": "w001",
+            "measurement_observed": "no",
+            "observations": [],
+            "decision_evidence_frame_ids": ["frame_000100"],
+            "decision_evidence": "全部图片只显示插接导线。",
+            "confidence": 0.7,
+        }
+        self.assertEqual([], v3._validate_measurement_binary(no_value, "w001", frames))
+        no_value.pop("decision_evidence")
+        self.assertIn("decision_evidence_invalid", v3._validate_measurement_binary(no_value, "w001", frames))
+
+    def test_endpoint_cleanup_binary_can_create_candidate_without_map_cleanup(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            registry = {
+                number: {
+                    "image_id": f"frame_{number:06d}",
+                    "frame_number": number,
+                    "timestamp_seconds": number / 10.0,
+                    "path": str(root / f"frame_{number:06d}.jpg"),
+                }
+                for number in (0, 20, 40, 60, 80, 100)
+            }
+            prepared = {
+                "video_id": "sample",
+                "video_dir": root,
+                "manifest": {},
+                "frames_dir": root / "frames",
+                "frame_registry": registry,
+                "fps": 10.0,
+                "frame_count": 101,
+                "fixed_start": 0.0,
+                "fixed_end": 10.0,
+            }
+            response = {
+                "parsed_result": {
+                    "cleanup_completed": "yes",
+                    "first_cleanup_frame_id": "frame_000060",
+                    "last_cleanup_frame_id": "frame_000100",
+                    "representative_frame_id": "frame_000080",
+                    "experiment_activity_continues_afterward": "no",
+                    "evidence_frame_ids": ["frame_000060", "frame_000100"],
+                    "evidence": "多根导线拆下，橙红色仪器已放回桌子左上角。",
+                    "confidence": 0.91,
+                }
+            }
+            with patch.object(v3.engine, "_extract_source_frames"), patch.object(
+                v3.engine, "_attempt_qwen", return_value=response
+            ):
+                events, result, review = v3._run_endpoint_cleanup_binary(
+                    prepared,
+                    object(),
+                    Namespace(max_model_edge=640, map_max_tokens=1000, max_attempts=1),
+                )
+        self.assertTrue(result["valid"])
+        self.assertEqual([], review)
+        self.assertEqual(1, len(events))
+        self.assertEqual("cleanup_action", events[0]["action_type"])
+        self.assertEqual("endpoint_cleanup", events[0]["independent_binary_confirmation"])
+
+    def test_endpoint_cleanup_binary_candidate_is_promoted_when_reduce_demotes_it(self) -> None:
+        raw_events = [
+            map_event("wiring", "wiring_action", 0, 5),
+            {
+                **map_event("endpoint_cleanup_binary_e01", "cleanup_action", 10, 12),
+                "independent_binary_confirmation": "endpoint_cleanup",
+            },
+            map_event("late_writing", "writing_action", 13, 15),
+        ]
+        canonical = v3.deduplicate_map_events_v3(raw_events)
+        wiring, cleanup, late = canonical
+        result = {
+            "effective_parsed_result": {
+                "accepted_event_ids": [wiring["event_id"], late["event_id"]],
+                "rejected_events": [
+                    {"event_id": cleanup["event_id"], "reason": "other", "explanation": "Reduce 遗漏终态"}
+                ],
+                "conflicts": [],
+                "terminal_cleanup_event_id": None,
+                "confidence": 0.5,
+                "uncertainty": "",
+            },
+            "selection": {"terminal_cleanup_event_id": None},
+            "accepted_events": [wiring, late],
+            "recovery": {"repairs": []},
+        }
+        selected, terminal = v3._promote_endpoint_cleanup_candidate(
+            canonical,
+            [wiring, late],
+            result,
+            Namespace(reduce_recovery_policy="local_partial"),
+        )
+        self.assertEqual(cleanup["event_id"], terminal["event_id"])
+        self.assertEqual(cleanup["event_id"], result["selection"]["terminal_cleanup_event_id"])
+        self.assertEqual({wiring["event_id"], cleanup["event_id"]}, {item["event_id"] for item in selected})
+        rejected = {item["event_id"]: item["reason"] for item in result["effective_parsed_result"]["rejected_events"]}
+        self.assertEqual("post_terminal_cleanup", rejected[late["event_id"]])
 
     def test_confirmed_cleanup_keeps_terminal_and_noise_barrier(self) -> None:
         raw_events = [map_event("cleanup", "cleanup_action", 10, 12), map_event("wiring", "wiring_action", 13, 16)]

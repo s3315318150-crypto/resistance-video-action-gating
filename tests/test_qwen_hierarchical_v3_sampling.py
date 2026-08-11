@@ -14,7 +14,12 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from qwen_hierarchical_v3_sampling import motion_consistency_score, scan_activity, select_timestamps  # noqa: E402
+from qwen_hierarchical_v3_sampling import (  # noqa: E402
+    motion_consistency_score,
+    percentile_normalize_activity,
+    scan_activity,
+    select_timestamps,
+)
 
 
 class HierarchicalV3SamplingTests(unittest.TestCase):
@@ -51,6 +56,39 @@ class HierarchicalV3SamplingTests(unittest.TestCase):
             samples = scan_activity(path, 0.0, 1.9, 0.5)
         self.assertGreaterEqual(len(samples), 4)
         self.assertGreater(max(item["activity_score"] for item in samples), 0.5)
+
+    def test_percentile_normalization_does_not_saturate_most_samples(self) -> None:
+        samples = [
+            {"timestamp_seconds": float(index), "raw_activity_score": float(index + 1)}
+            for index in range(100)
+        ]
+        normalized, diagnostic = percentile_normalize_activity(samples)
+        saturated = sum(1 for item in normalized if item["activity_score"] == 1.0)
+        self.assertLess(saturated, 20)
+        self.assertEqual(20.8, diagnostic["percentile_low"])
+        self.assertEqual(90.1, diagnostic["percentile_high"])
+
+    def test_bucketed_selection_spreads_peaks_and_reserves_low_motion_budget(self) -> None:
+        samples = [
+            {
+                "timestamp_seconds": index * 0.5,
+                "raw_activity_score": 10.0 if index % 20 == 7 else float(index % 5),
+            }
+            for index in range(121)
+        ]
+        selected, diagnostic = select_timestamps(
+            0.0,
+            60.0,
+            25,
+            samples,
+            return_diagnostics=True,
+        )
+        self.assertEqual(25, len(selected))
+        self.assertGreater(diagnostic["low_motion_selected_count"], 0)
+        high = diagnostic["high_motion_timestamps_seconds"]
+        self.assertTrue(any(timestamp < 20.0 for timestamp in high))
+        self.assertTrue(any(20.0 <= timestamp < 40.0 for timestamp in high))
+        self.assertTrue(any(timestamp >= 40.0 for timestamp in high))
 
 
 if __name__ == "__main__":

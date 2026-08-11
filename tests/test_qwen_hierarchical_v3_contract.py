@@ -14,7 +14,12 @@ if str(SCRIPTS) not in sys.path:
 import qwen_experiment_action_hierarchical_v3 as v3  # noqa: E402
 import qwen_hierarchical_v1_contract as base_contract  # noqa: E402
 import qwen_hierarchical_v3_contract as contract  # noqa: E402
-from qwen_hierarchical_v3_prompts import build_map_prompt, build_reduce_prompt  # noqa: E402
+from qwen_hierarchical_v3_prompts import (  # noqa: E402
+    build_endpoint_cleanup_binary_prompt,
+    build_map_prompt,
+    build_measurement_binary_prompt,
+    build_reduce_prompt,
+)
 
 
 class HierarchicalV3ContractTests(unittest.TestCase):
@@ -60,10 +65,20 @@ class HierarchicalV3ContractTests(unittest.TestCase):
         prompt = build_map_prompt("sample", {"window_id": "w001", "window_seconds": [0.0, 10.0]}, frames)
         self.assertIn('"auxiliary_subtype"', prompt)
         self.assertIn("battery_configuration_change", prompt)
+        self.assertIn("本实验没有滑动变阻器", prompt)
         self.assertNotIn("本任务没有“换电池”基础动作或阶段", prompt)
         reduce_prompt = build_reduce_prompt("sample", [])
         self.assertIn("待复核的终态候选", reduce_prompt)
         self.assertIn("不能代替原图复核", reduce_prompt)
+        measurement_prompt = build_measurement_binary_prompt(
+            "sample", {"window_id": "w001"}, frames
+        )
+        self.assertIn('"measurement_observed": "yes" | "no"', measurement_prompt)
+        self.assertIn('"decision_evidence_frame_ids"', measurement_prompt)
+        self.assertIn("本实验没有滑动变阻器", measurement_prompt)
+        cleanup_prompt = build_endpoint_cleanup_binary_prompt("sample", frames)
+        self.assertIn('"cleanup_completed": "yes" | "no"', cleanup_prompt)
+        self.assertIn("桌子左上角", cleanup_prompt)
 
     def test_bind_and_restore_leave_v1_identity_reproducible(self) -> None:
         v3.bind_v3_identity()

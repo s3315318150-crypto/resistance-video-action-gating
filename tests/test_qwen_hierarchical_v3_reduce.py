@@ -79,6 +79,39 @@ class HierarchicalV3ReduceTests(unittest.TestCase):
         self.assertTrue(writing["batched_recording"])
         self.assertEqual(["recording_1", "recording_2"], writing["recording_search_aliases"])
 
+    def test_writing_before_second_measurement_does_not_advance_to_recording_2(self) -> None:
+        events = [
+            event("e1", "wiring_action", 0, 10),
+            event("e2", "measurement_action", 11, 22),
+            event("e3", "writing_action", 23, 30),
+            event("e4", "wiring_action", 31, 40, "明确换接导线到另一端"),
+            event("e5", "writing_action", 41, 48),
+        ]
+        result = assign_seven_stages_v3(events, None)
+        pending = next(item for item in result["assigned_events"] if item["event_id"] == "e5")
+        self.assertIsNone(pending["stage"])
+        self.assertEqual("pending_writing_before_measurement_2", pending["assignment_reason"])
+        self.assertIn("recording_2", result["missing_stages"])
+
+    def test_recording_2_can_return_to_measurement_2_with_penalty_then_record_again(self) -> None:
+        events = [
+            event("e1", "wiring_action", 0, 10),
+            event("e2", "measurement_action", 11, 22),
+            event("e3", "writing_action", 23, 30),
+            event("e4", "wiring_action", 31, 40, "明确换接导线到另一端"),
+            event("e5", "measurement_action", 41, 50),
+            event("e6", "writing_action", 51, 58),
+            event("e7", "measurement_action", 59, 67),
+            event("e8", "writing_action", 68, 75),
+        ]
+        result = assign_seven_stages_v3(events, None)
+        assigned = {item["event_id"]: item for item in result["assigned_events"]}
+        self.assertEqual("recording_2", assigned["e6"]["stage"])
+        self.assertEqual("measurement_2", assigned["e7"]["stage"])
+        self.assertEqual(-0.2, assigned["e7"]["transition_penalty"])
+        self.assertEqual("recording_2", assigned["e8"]["stage"])
+        self.assertEqual("repeated_recording_2_after_measurement_return", assigned["e8"]["assignment_reason"])
+
     def test_auxiliary_and_out_of_order_events_are_preserved_as_anomalies(self) -> None:
         auxiliary = event("e1", "auxiliary_action", 0, 2, "学生换座位")
         auxiliary["auxiliary_subtype"] = "seat_change"
