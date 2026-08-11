@@ -38,6 +38,8 @@ flowchart LR
 |---|---|
 | 推荐七阶段动作分割 | `scripts/qwen_experiment_action_hierarchical_v2.py` |
 | 七阶段契约、提示词与 Reduce | `scripts/qwen_hierarchical_v1_contract.py`、`scripts/qwen_hierarchical_v1_prompts.py`、`scripts/qwen_hierarchical_v1_reduce.py` |
+| 任意新视频本地一键编排 | `scripts/run_resistance_pipeline.py` |
+| 从七阶段自动生成接线配置与稳定帧 | `scripts/generate_wiring_sequence_config.py` |
 | 评价 8 断开换电池组 | `scripts/run_resistance_disconnect_battery_sequence_v1.py` |
 | 评价 8 本地确定性 reducer | `scripts/resistance_disconnect_battery_sequence_core.py` |
 | 纸面记录与仪表读数核验 | `scripts/run_meter_record_consistency_v1.py` |
@@ -94,6 +96,51 @@ $env:QWEN_MODEL = "<your-model-name>"
 ```
 
 不要把真实值写入 `.env.example` 或提交到 Git。
+
+## 新视频一键入口
+
+视频仍只保存在本机的 `data/videos/`，不上传到 GitHub。下面一条命令会自动发现该目录中的任意 `.mp4`、`.mov`、`.avi`、`.mkv` 或 `.webm` 文件，并依次运行橙红色仪器扫描、实验起止判断、七阶段 v2 分割和接线配置生成：
+
+```powershell
+python scripts/run_resistance_pipeline.py `
+  --video-dir data/videos `
+  --output-root outputs/resistance_pipeline
+```
+
+先检查命令计划而不打开视频、不调用 Qwen：
+
+```powershell
+python scripts/run_resistance_pipeline.py `
+  --video-dir data/videos `
+  --output-root outputs/resistance_pipeline `
+  --run-id check_new_videos `
+  --dry-run
+```
+
+每次运行使用独立目录，并生成：
+
+```text
+outputs/resistance_pipeline/<run-id>/
+├── marker_filter/
+├── experiment_boundary/
+├── actions/v2/
+├── wiring_stable_frames/
+├── generated_configs/wiring_sequence.json
+└── run_report.json
+```
+
+`wiring_sequence.json` 不含历史五视频的固定时间。生成器会为每个 `circuit_wiring` / `circuit_rewiring` 建立独立 episode，在其后的测量或记录阶段重新抽帧，并依据清晰度、曝光和相邻帧静止程度选择 `stable_primary` 与 `stable_backup`。也可以单独运行：
+
+```powershell
+python scripts/generate_wiring_sequence_config.py `
+  --action-summary outputs/resistance_pipeline/<run-id>/actions/v2/summary.json `
+  --video-root data/videos `
+  --output outputs/resistance_pipeline/<run-id>/generated_configs/wiring_sequence.json `
+  --evidence-root outputs/resistance_pipeline/<run-id>/wiring_stable_frames `
+  --wiring-output-root outputs/resistance_pipeline/<run-id>/wiring_results
+```
+
+当前一键入口完成到“七阶段分割 + 接线 episode/稳定帧配置”。评价 1、2、3、4、5、6、7、9 的专项视觉工件仍须由对应取证器生成，`run_report.json` 会明确列出这些项；在专项工件缺失时，不把十项汇总结果宣传为完整自动评分。评价 8 已有独立通用入口。
 
 ## 快速开始
 
