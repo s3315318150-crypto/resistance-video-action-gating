@@ -37,6 +37,7 @@ flowchart LR
 | 用途 | 入口或核心文件 |
 |---|---|
 | 推荐七阶段动作分割 | `scripts/qwen_experiment_action_hierarchical_v2.py` |
+| v2 时序保护实验版 | `scripts/qwen_experiment_action_hierarchical_v2_temporal_guard.py`、`scripts/qwen_hierarchical_v2_temporal_guard_reduce.py` |
 | 七阶段契约、提示词与 Reduce | `scripts/qwen_hierarchical_v1_contract.py`、`scripts/qwen_hierarchical_v1_prompts.py`、`scripts/qwen_hierarchical_v1_reduce.py` |
 | 实验性七阶段 v3 | `scripts/qwen_experiment_action_hierarchical_v3.py`、`scripts/qwen_hierarchical_v3_*.py` |
 | 任意新视频本地一键编排 | `scripts/run_resistance_pipeline.py` |
@@ -115,6 +116,15 @@ python scripts/run_resistance_pipeline.py `
   --video-dir data/videos `
   --output-root outputs/resistance_pipeline `
   --action-version v3
+```
+
+要保留原 v2 的抽帧、Map、状态机和提示词，只增加“非重叠事件不得被后续动作覆盖”的本地 Reduce 保护，使用：
+
+```powershell
+python scripts/run_resistance_pipeline.py `
+  --video-dir data/videos `
+  --output-root outputs/resistance_pipeline `
+  --action-version v2-temporal-guard
 ```
 
 先检查命令计划而不打开视频、不调用 Qwen：

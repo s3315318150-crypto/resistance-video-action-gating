@@ -83,6 +83,36 @@ class RunResistancePipelineTests(unittest.TestCase):
         self.assertTrue(any("qwen_experiment_action_hierarchical_v3.py" in item for item in action_phase["command"]))
         self.assertTrue(report["outputs"]["action_summary"].endswith("actions\\v3\\summary.json"))
 
+    def test_v2_temporal_guard_is_independent_and_reuses_v2_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            videos = root / "videos"
+            videos.mkdir()
+            (videos / "anonymous_sample.mp4").write_bytes(b"not-opened-in-dry-run")
+            output = root / "outputs"
+            result = MODULE.main(
+                [
+                    "--video-dir",
+                    str(videos),
+                    "--output-root",
+                    str(output),
+                    "--run-id",
+                    "guarded_plan",
+                    "--action-version",
+                    "v2-temporal-guard",
+                    "--dry-run",
+                ]
+            )
+            report = json.loads((output / "guarded_plan" / "run_report.json").read_text(encoding="utf-8"))
+        self.assertEqual(0, result)
+        action_phase = next(item for item in report["phases"] if item["phase"] == "03_action_v2-temporal-guard")
+        self.assertTrue(
+            any("qwen_experiment_action_hierarchical_v2_temporal_guard.py" in item for item in action_phase["command"])
+        )
+        schema_index = action_phase["command"].index("--schema") + 1
+        self.assertTrue(action_phase["command"][schema_index].endswith("resistance_7stage_no_battery_v2.json"))
+        self.assertTrue(report["outputs"]["action_summary"].endswith("actions\\v2-temporal-guard\\summary.json"))
+
 
 if __name__ == "__main__":
     unittest.main()

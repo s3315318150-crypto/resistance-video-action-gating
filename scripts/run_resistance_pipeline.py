@@ -22,6 +22,14 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 VIDEO_SUFFIXES = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
+ACTION_VARIANTS = {
+    "v2": ("qwen_experiment_action_hierarchical_v2.py", "resistance_7stage_no_battery_v2.json"),
+    "v2-temporal-guard": (
+        "qwen_experiment_action_hierarchical_v2_temporal_guard.py",
+        "resistance_7stage_no_battery_v2.json",
+    ),
+    "v3": ("qwen_experiment_action_hierarchical_v3.py", "resistance_7stage_no_battery_v3.json"),
+}
 
 
 def write_json(path: Path, value: dict[str, Any]) -> None:
@@ -64,9 +72,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--action-max-model-edge", type=int, default=640)
     parser.add_argument(
         "--action-version",
-        choices=("v2", "v3"),
+        choices=tuple(ACTION_VARIANTS),
         default="v2",
-        help="v2 is stable; v3 opts into adaptive sampling and weighted decoding.",
+        help="v2 stays unchanged; v2-temporal-guard protects non-overlapping events; v3 is experimental.",
     )
     return parser
 
@@ -86,8 +94,9 @@ def main(argv: list[str] | None = None) -> int:
     action_root = run_root / "actions"
     action_run_id = args.action_version
     action_summary = action_root / action_run_id / "summary.json"
-    action_script = ROOT / "scripts" / f"qwen_experiment_action_hierarchical_{args.action_version}.py"
-    action_schema = ROOT / "configs" / "action_schemas" / f"resistance_7stage_no_battery_{args.action_version}.json"
+    action_script_name, action_schema_name = ACTION_VARIANTS[args.action_version]
+    action_script = ROOT / "scripts" / action_script_name
+    action_schema = ROOT / "configs" / "action_schemas" / action_schema_name
     wiring_config = run_root / "generated_configs" / "wiring_sequence.json"
     phases = [
         (
