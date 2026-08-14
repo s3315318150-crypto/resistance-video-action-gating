@@ -220,6 +220,19 @@ class TerminalPairVerifierTests(unittest.TestCase):
         self.assertTrue(by_id["after"]["terminal_state_stable"])
         self.assertFalse(by_id["after"]["terminal_rewire_completed"])
 
+    def test_structured_completion_survives_same_frame_contact_overlay(self) -> None:
+        summary = valid_summary(contact_ids=["contact", "end"])
+
+        observations, errors = runner.structured_summary_to_observations(
+            summary, make_records()
+        )
+
+        self.assertEqual([], errors)
+        by_id = {item["frame_id"]: item for item in observations}
+        self.assertTrue(by_id["end"]["direct_battery_contact"])
+        self.assertEqual("reconnect", by_id["end"]["terminal_action"])
+        self.assertTrue(by_id["end"]["terminal_rewire_completed"])
+
 
 class ProcessedEpisodeAggregationTests(unittest.TestCase):
     def test_aggregation_uses_top_level_decisions_without_reducing_nested_episode(self) -> None:
@@ -308,6 +321,12 @@ class EpisodeWindowTests(unittest.TestCase):
 
 
 class PublicInputTests(unittest.TestCase):
+    def test_public_algorithm_id_names_recovery_window_version(self) -> None:
+        self.assertEqual(
+            "resistance_disconnect_battery_sequence_v2_recovery_windows",
+            runner.ALGORITHM_ID,
+        )
+
     def test_generic_source_name_maps_to_generic_video_id(self) -> None:
         self.assertEqual("sample_001", runner.video_id_from_name("sample_001.mp4"))
         self.assertEqual("24", runner.video_id_from_name("24_any_name.mp4"))

@@ -50,7 +50,7 @@ DEFAULT_API_BASE_URL = os.getenv("QWEN_API_BASE_URL", "").strip()
 DEFAULT_API_TOKEN = os.getenv("QWEN_API_TOKEN", "").strip()
 DEFAULT_MODEL = os.getenv("QWEN_MODEL", "qwen").strip() or "qwen"
 SCHEMA_ID = "resistance_7stage_no_battery_v2"
-ALGORITHM_ID = "resistance_disconnect_battery_sequence_v1"
+ALGORITHM_ID = "resistance_disconnect_battery_sequence_v2_recovery_windows"
 RECOVERY_STAGE_IDS = ("recording_1", "measurement_1")
 RECOVERY_MIN_GAP_SECONDS = 0.5
 RECOVERY_MAX_GAP_SECONDS = 45.0
@@ -780,6 +780,13 @@ def structured_summary_to_observations(summary: Mapping[str, Any], records: list
     )
     for frame_id in contact_ids:
         assign_frame(frame_id, action="uncertain", direct=True, evidence="Direct contact with a fixed battery-holder terminal.")
+    # A completion frame can also be part of the direct-contact evidence set.
+    # Restore its stronger ordered-transition meaning after the generic contact
+    # overlay so the reducer can observe an explicit completed reconnection.
+    if completed and object_verified and isinstance(end_id, str) and end_id in contact_ids:
+        observations[end_id]["direct_battery_contact"] = True
+        observations[end_id]["terminal_action"] = "reconnect"
+        observations[end_id]["terminal_rewire_completed"] = True
     assign_frame(switch.get("open_before_frame_id"), switch="open", evidence="Model-selected open knife-switch state before rewire.")
     assign_frame(switch.get("closed_after_frame_id"), switch="closed", evidence="Model-selected closed knife-switch state after rewire.")
     closed_during = switch.get("closed_during_frame_ids")
