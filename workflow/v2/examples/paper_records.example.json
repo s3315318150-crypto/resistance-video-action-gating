@@ -1,0 +1,12 @@
+{
+  "schema_version": "paper_records.v1",
+  "results": [
+    {
+      "video_id": "sample_001",
+      "u_value": 2.5,
+      "i_value": 0.12,
+      "confidence": 0.9,
+      "evidence_seconds": [75.0, 77.0]
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "structured_observation_config",
+  "rubric_id": "resistance.example_visible_relation",
+  "observation_instruction": "Determine whether the requested visible relation is directly supported by the supplied evidence images.",
+  "observation_enum": [
+    "supported",
+    "contradicted",
+    "uncertain"
+  ],
+  "evidence_rules": [
+    "Use only pixels visible in the supplied evidence packet.",
+    "Do not combine disconnected paths from different candidate timestamps.",
+    "Use uncertain when an endpoint, state, or temporal transition is not visible."
+  ]
+}

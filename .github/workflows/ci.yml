@@ -6,17 +6,38 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
+  workflow:
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["3.10", "3.12"]
+        project: ["workflow/v1", "workflow/v2"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
+          cache-dependency-path: ${{ matrix.project }}/requirements.txt
       - run: python -m pip install -r requirements.txt
+        working-directory: ${{ matrix.project }}
       - run: python -m compileall -q scripts tests
+        working-directory: ${{ matrix.project }}
       - run: python -m unittest discover -s tests -v
+        working-directory: ${{ matrix.project }}
+
+  agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: agent/requirements.txt
+      - run: python -m pip install -r requirements.txt
+        working-directory: agent
+      - run: python -m compileall -q .
+        working-directory: agent
+      - run: python -m unittest discover -s tests -v
+        working-directory: agent

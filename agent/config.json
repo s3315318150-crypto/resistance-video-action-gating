@@ -1,0 +1,86 @@
+{
+  "schema_version": "resistance_agent_config.v1",
+  "agent_id": "resistance_video_agent",
+  "video_dirs": [
+    "data/videos"
+  ],
+  "models": {
+    "deepseek": {
+      "role": "bounded_tool_scheduler",
+      "base_url": "",
+      "model": "",
+      "api_key_env": "DEEPSEEK_API_KEY"
+    },
+    "openai": {
+      "role": "bounded_tool_scheduler",
+      "base_url": "",
+      "base_url_env": "OPENAI_BASE_URL",
+      "model": "",
+      "model_env": "OPENAI_MODEL",
+      "api_key_env": "OPENAI_API_KEY",
+      "reasoning_effort": "low"
+    },
+    "qwen": {
+      "role": "multimodal_observer",
+      "base_url": "",
+      "base_url_env": "QWEN_API_BASE_URL",
+      "model": "qwen",
+      "model_env": "QWEN_MODEL",
+      "api_key_env": "QWEN_API_TOKEN"
+    }
+  },
+  "workflow": {
+    "release_root": "workflow/v2",
+    "full_pipeline": {
+      "script": "agent/scripts/run_resistance_agent_pipeline.py",
+      "action_version": "v2"
+    },
+    "action_segmentation": {
+      "algorithm": "hierarchical v2 current-video action segmentation",
+      "algorithm_id": "qwen_experiment_action_hierarchical_v2",
+      "stage_schema_id": "resistance_7stage_no_battery_v2",
+      "stage_count": 7,
+      "run_id": "v2",
+      "script": "workflow/v2/scripts/qwen_experiment_action_hierarchical_v2.py",
+      "schema": "workflow/v2/configs/action_schemas/resistance_7stage_no_battery_v2.json",
+      "sample_interval_seconds": 2.0,
+      "max_model_edge": 1280,
+      "jpeg_quality": 90
+    },
+    "boundary_refinement": {
+      "algorithm": "current-run Rubric boundary refinement",
+      "script": "workflow/v2/scripts/refine_v2_temporal_guard_boundaries_rubric.py",
+      "max_model_edge": 640
+    },
+    "meter_rubrics": {
+      "algorithm": "current-run dynamic meter candidates and evidence fusion"
+    },
+    "switch_rubric": {
+      "algorithm": "opencv same-frame switch and wiring overlap",
+      "sampling_fps": 5.0,
+      "roi_mode": "dynamic_current_frame_switch_and_plug"
+    },
+    "series_rubric": {
+      "algorithm": "adaptive terminal sampling with dynamic topology ROI",
+      "input_policy": "current_run_visual_evidence_only"
+    },
+    "record_rubrics": {
+      "algorithm": "cycle-bound dynamic paper and meter evidence"
+    },
+    "remaining_rubrics": {
+      "algorithm": "stage-selected current-run visual evidence",
+      "rubric8_script": "agent/scripts/run_rubric8_specialized.py",
+      "rubric_ids": [0, 2, 8]
+    },
+    "polarity_rubric": {
+      "algorithm": "current-run R5 pointer evidence reuse"
+    }
+  },
+  "limits": {
+    "max_agent_steps": 24,
+    "model_timeout_seconds": 120,
+    "tool_timeout_seconds": 1800,
+    "pipeline_timeout_seconds": 7200,
+    "tool_parameter_retries": 1
+  }
+}

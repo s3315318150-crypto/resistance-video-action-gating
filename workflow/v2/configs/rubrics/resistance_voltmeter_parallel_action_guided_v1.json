@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "rubric_definition",
+  "experiment_type": "experimental_voltmeter_parallel_action_guided_v1",
+  "rubric_id": "resistance.voltmeter_parallel_connection",
+  "rubric_name": "Voltmeter connected in parallel across the resistor under test",
+  "time_prior": {
+    "source": "seven_stage_action_segmentation",
+    "allowed_source_stages": [
+      "circuit_wiring",
+      "circuit_rewiring",
+      "measurement_1",
+      "measurement_2",
+      "recording_1",
+      "recording_2"
+    ],
+    "not_topology_evidence": true
+  },
+  "decision_enums": [
+    "pass",
+    "fail",
+    "abstained"
+  ],
+  "decision_rules": {
+    "pass": [
+      "voltmeter and resistor under test are both visible",
+      "both voltmeter terminals visibly reach the two different resistor nodes; a resistor node may be a binding post or a direct wire-to-resistor-lead junction",
+      "stable configuration is visible"
+    ],
+    "fail": [
+      "a stable configuration directly shows that the voltmeter does not reach the two resistor nodes"
+    ],
+    "abstained": [
+      "a terminal, wire path, or resistor endpoint is occluded, outside the frame, or not traceable"
+    ]
+  },
+  "visual_constraints": [
+    "A wire crossing alone is not an electrical connection.",
+    "A direct wire-to-resistor-lead junction counts as a resistor endpoint when its association with that resistor is visible; a binding post is not required.",
+    "An absent or invisible connection is not evidence of failure.",
+    "Do not infer topology from the action label or from meter color alone."
+  ]
+}

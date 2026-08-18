@@ -1,0 +1,58 @@
+{
+  "schema_version": "v2_behavior_tolerant_golden.v1",
+  "boundary_tolerance_seconds": 2.0,
+  "records": [
+    {
+      "source_video_id": "sample_001.mp4",
+      "expected_stage_runs": [
+        ["circuit_wiring", 240.0, 332.0],
+        ["circuit_wiring", 340.0, 404.0],
+        ["recording_1", 412.0, 422.0],
+        ["circuit_rewiring", 424.0, 430.0],
+        ["recording_2", 432.0, 452.0],
+        ["material_cleanup", 478.0, 491.6666666666667]
+      ]
+    },
+    {
+      "source_video_id": "sample_002.mp4",
+      "expected_stage_runs": [
+        ["circuit_wiring", 200.0, 320.0],
+        ["recording_1", 324.0, 368.0],
+        ["circuit_rewiring", 394.0, 426.0],
+        ["material_cleanup", 428.0, 452.0]
+      ]
+    },
+    {
+      "source_video_id": "sample_003.mp4",
+      "expected_stage_runs": [
+        ["circuit_wiring", 85.0, 203.0],
+        ["measurement_1", 205.0, 211.0],
+        ["recording_1", 221.0, 257.0],
+        ["circuit_rewiring", 259.0, 263.0],
+        ["recording_2", 269.0, 289.0],
+        ["material_cleanup", 317.0, 329.0]
+      ]
+    },
+    {
+      "source_video_id": "sample_004.mp4",
+      "expected_stage_runs": [
+        ["circuit_wiring", 5.0, 65.0],
+        ["circuit_wiring", 105.0, 127.0],
+        ["recording_1", 129.0, 137.0],
+        ["circuit_rewiring", 139.0, 199.0],
+        ["recording_2", 207.0, 229.0],
+        ["material_cleanup", 285.0, 291.0]
+      ]
+    },
+    {
+      "source_video_id": "sample_005.mp4",
+      "expected_stage_runs": [
+        ["circuit_wiring", 0.0, 106.0],
+        ["recording_1", 108.0, 112.0],
+        ["circuit_rewiring", 114.0, 126.0],
+        ["recording_2", 128.0, 138.0],
+        ["material_cleanup", 164.0, 184.13333333333333]
+      ]
+    }
+  ]
+}

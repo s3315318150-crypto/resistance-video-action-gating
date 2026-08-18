@@ -1,0 +1,15 @@
+{
+  "schema_version": "ten_rubrics_artifact_config.v1",
+  "description": "Anonymous artifact locations for the ten-rubric binary reducer. Paths are local and outputs/ is ignored.",
+  "artifacts": {
+    "wiring_episodes": "outputs/wiring/summary.json",
+    "deepseek": "outputs/wiring/deepseek_summary.json",
+    "switch": "outputs/switch/video_results.json",
+    "polarity_root": "outputs/polarity",
+    "first_record": "outputs/record_first/summary.json",
+    "opencv": "outputs/pointer_range/rubric_5_6_summary.json",
+    "rubric8": "outputs/resistance_disconnect_battery_sequence_v1/summary.json",
+    "second_record": "outputs/record_second/evidence_availability_review.json",
+    "ammeter_source_series": ""
+  }
+}
