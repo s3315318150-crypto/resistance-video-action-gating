@@ -145,7 +145,6 @@ current-run R5 result is required for R4 execute
 run_switch_rubric       -> R3
 run_series_rubric       -> R1
 run_meter_rubrics       -> R5 / R6
-run_record_rubrics      -> R7 / R9
 run_remaining_rubrics   -> R0 / R2 / R8
 run_polarity_rubric     -> R4，复用当前 run R5
 ```

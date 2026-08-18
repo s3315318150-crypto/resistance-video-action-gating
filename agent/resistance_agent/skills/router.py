@@ -224,17 +224,6 @@ def select_live_skills(
             dynamic_meter_candidates=True,
         ),
         _skill(
-            "record.two_cycle_consistency"
-            if recording_cycle_count >= 2
-            else "record.single_cycle_consistency"
-            if recording_cycle_count == 1
-            else "record.broad_cycle_search",
-            [7, 9],
-            f"recording cycle count={recording_cycle_count}",
-            dynamic_paper_candidates=True,
-            dynamic_meter_candidates=True,
-        ),
-        _skill(
             "cleanup.explicit_stage" if cleanup_count else "cleanup.video_tail",
             [0],
             "material_cleanup observed" if cleanup_count else "no cleanup stage; inspect terminal tail",

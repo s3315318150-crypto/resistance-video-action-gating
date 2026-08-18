@@ -46,7 +46,6 @@
 
 - R1/R3/R8 使用 `circuit_wiring` 和 `circuit_rewiring`。
 - R5/R6 优先消费合并阶段内的 `measurement_subintervals`；缺失时在同一合并周期做统一 `broad_search`，Router 不会仅因 `recording_1/2` 容器存在就选择 `explicit_measurement`。
-- R7/R9 使用 `writing_subintervals` 读取纸面，同时在同一周期内向前搜索稳定电表状态。
 - R0 使用 `material_cleanup`。
 - Skill Router 按当前 run 实际观察到的阶段和轮次选择参数，不按视频 ID、文件名、哈希或历史结果路由。
 

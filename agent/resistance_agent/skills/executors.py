@@ -107,27 +107,6 @@ def _meter_defaults(**overrides: Any) -> dict[str, Any]:
     return values
 
 
-def _record_defaults(**overrides: Any) -> dict[str, Any]:
-    values = {
-        "cycle_mode": "all_observed_cycles",
-        "paper_max_samples": 10,
-        "meter_max_samples": 7,
-        "dynamic_paper_candidates": True,
-        "dynamic_meter_candidates": True,
-        "candidate_crops_per_frame": 3,
-        "digit_consensus_min_support": 1,
-        "adaptive_enabled": True,
-        "adaptive_max_rounds": 2,
-        "adaptive_interval_seconds": 0.2,
-        "adaptive_max_frames": 20,
-        "roi_mode": "dynamic_paper_and_meter_candidates",
-        "prompt_instruction": "Bind every paper value and meter reading to the same observed recording cycle before comparing them.",
-        "fusion_policy": "cycle_bound_digit_consensus",
-    }
-    values.update(overrides)
-    return values
-
-
 def _remaining_defaults(rubric_id: int, **overrides: Any) -> dict[str, Any]:
     base = {
         0: {
@@ -219,9 +198,6 @@ EXECUTOR_REGISTRY: dict[str, SkillExecutor] = {
         _spec("series.broad_terminal_graph", "run_series_rubric", (1,), _series_defaults(window_mode="broad_search")),
         _spec("meter.explicit_measurement", "run_meter_rubrics", (5, 6), _meter_defaults()),
         _spec("meter.pre_recording_recovery", "run_meter_rubrics", (5, 6), _meter_defaults(window_mode="pre_recording_recovery", max_samples=36, selected_frame_limit=6)),
-        _spec("record.two_cycle_consistency", "run_record_rubrics", (7, 9), _record_defaults()),
-        _spec("record.single_cycle_consistency", "run_record_rubrics", (7, 9), _record_defaults(cycle_mode="first_observed_cycle")),
-        _spec("record.broad_cycle_search", "run_record_rubrics", (7, 9), _record_defaults(cycle_mode="broad_cycle_search", paper_max_samples=12, meter_max_samples=9)),
         _spec("cleanup.explicit_stage", "run_remaining_rubrics", (0,), _remaining_defaults(0)),
         _spec("cleanup.video_tail", "run_remaining_rubrics", (0,), _remaining_defaults(0, time_mode="video_tail", sample_count=8)),
         _spec("stable_meter.explicit_measurement", "run_remaining_rubrics", (2,), _remaining_defaults(2)),
@@ -413,8 +389,11 @@ def bind_skill_plan(plan: dict[str, Any]) -> list[dict[str, Any]]:
         raise SkillExecutionError("live skill plan must contain a skills array")
     bound = [_bind(item) for item in raw if isinstance(item, dict)]
     covered = [rubric_id for item in bound for rubric_id in item["rubric_ids"]]
-    if sorted(covered) != list(range(10)):
-        raise SkillExecutionError(f"live skill coverage must be exactly rubric 0..9, got {sorted(covered)}")
+    published_ids = [0, 1, 2, 3, 4, 5, 6, 8]
+    if sorted(covered) != published_ids:
+        raise SkillExecutionError(
+            f"live skill coverage must be exactly published rubrics {published_ids}, got {sorted(covered)}"
+        )
     return bound
 
 

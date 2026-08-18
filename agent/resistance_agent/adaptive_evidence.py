@@ -200,75 +200,8 @@ def request_additional_evidence(
     search_mode: str | None = None,
 ) -> dict[str, Any]:
     """Execute one bounded adaptive request against the current run video."""
-    normalized_profile = evidence_profile or (
-        "record_paper"
-        if isinstance(rubric_ids, list)
-        and bool(rubric_ids)
-        and all(type(value) is int and value in {7, 9} for value in rubric_ids)
-        else "meter_pair"
-    )
-    if normalized_profile == "record_meter":
-        try:
-            try:
-                from .adaptive_record_meter_evidence import (
-                    AdaptiveRecordMeterEvidenceError,
-                    request_additional_record_meter_evidence,
-                )
-            except ImportError:  # pragma: no cover
-                from adaptive_record_meter_evidence import (  # type: ignore
-                    AdaptiveRecordMeterEvidenceError,
-                    request_additional_record_meter_evidence,
-                )
-            return request_additional_record_meter_evidence(
-                run_dir=run_dir,
-                state=state,
-                rubric_ids=rubric_ids,
-                reason=reason,
-                time_ranges=time_ranges,
-                cycle=cycle,
-                target_roles=target_roles,
-                anchor_frame_ids=anchor_frame_ids,
-                search_mode=search_mode,
-                interval_seconds=interval_seconds,
-                max_frames=max_frames,
-                roi_mode=roi_mode,
-                view=view,
-            )
-        except AdaptiveRecordMeterEvidenceError as exc:
-            raise AdaptiveEvidenceError(str(exc)) from exc
-    if normalized_profile == "record_paper":
-        try:
-            try:
-                from .adaptive_record_evidence import (
-                    AdaptiveRecordEvidenceError,
-                    request_additional_record_evidence,
-                )
-            except ImportError:  # pragma: no cover
-                from adaptive_record_evidence import (  # type: ignore
-                    AdaptiveRecordEvidenceError,
-                    request_additional_record_evidence,
-                )
-            return request_additional_record_evidence(
-                run_dir=run_dir,
-                state=state,
-                rubric_ids=rubric_ids,
-                reason=reason,
-                time_ranges=time_ranges,
-                cycle=cycle,
-                target_fields=target_fields,
-                anchor_frame_ids=anchor_frame_ids,
-                search_mode=search_mode,
-                interval_seconds=interval_seconds,
-                max_frames=max_frames,
-                roi_mode=roi_mode,
-                view=view,
-            )
-        except AdaptiveRecordEvidenceError as exc:
-            raise AdaptiveEvidenceError(str(exc)) from exc
-    if normalized_profile != "meter_pair":
-        raise AdaptiveEvidenceError(
-            "evidence_profile must be meter_pair, record_meter, or record_paper"
-        )
+    if evidence_profile not in {None, "meter_pair"}:
+        raise AdaptiveEvidenceError("evidence_profile must be meter_pair")
     if state.get("mode") != "execute":
         raise AdaptiveEvidenceError("adaptive evidence is only valid in execute mode")
     if not isinstance(rubric_ids, list) or not rubric_ids:

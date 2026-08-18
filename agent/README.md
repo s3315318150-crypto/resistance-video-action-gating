@@ -4,7 +4,7 @@ Agent 版以 [Workflow V2](../workflow/v2/) 为工程基线，复用稳定视觉
 
 ## 改进点
 
-- 每次从当前视频重新识别接线、测量、记录、改线和整理阶段。
+- 每次从当前视频重新识别接线、测量、记录、改线和整理阶段；当前发布集为 `R0-R6、R8`。
 - Skill Router 只根据当前 run 已观察到的阶段与证据质量选择执行器。
 - 从原生视频帧动态定位仪表、端子、纸面、开关和电池区域，不按视频身份读取固定 ROI。
 - 遮挡、冲突或低置信度时，在当前阶段附近申请有限邻帧，再回到同一二分类 reducer。
@@ -40,6 +40,8 @@ flowchart LR
 视频 ID 和文件名只用于关联输入与输出，不参与 Skill、时间窗、ROI、阈值和结论选择。正式 `execute` 不接受历史 Temporal Guard 回退。
 
 ## 当前开发集回归
+
+本次 Agent 发布暂不包含 `R7`、`R9` 记录纸评分。两项仍保留在 Workflow V1/V2 的历史路线中，后续单独接入 Agent。Agent 的正式 execute、MCP schema、Skill 覆盖、校验和最终结果均只处理 `R0-R6、R8` 八项。
 
 | Rubric | 准确率 | 说明 |
 |---|---:|---|
@@ -100,4 +102,11 @@ python -m compileall -q agent
 python -m unittest discover -s agent\tests -v
 ```
 
-算法说明见 [`docs/algorithms`](./docs/algorithms/)，反过拟合调度约束见 [`prompts/tool_scheduler_anti_overfitting.md`](./prompts/tool_scheduler_anti_overfitting.md)。
+仓库根目录的完整验证还应运行 Workflow V2 测试：
+
+```powershell
+python -m compileall -q agent workflow\v2
+python -m unittest discover -s workflow\v2\tests -v
+```
+
+算法说明见 [`docs/algorithms`](./docs/algorithms/)，反过拟合调度约束见 [`prompts/tool_scheduler_anti_overfitting.md`](./prompts/tool_scheduler_anti_overfitting.md)。本仓库不包含原始视频、Excel、输出包、模型原始响应或真实凭据。

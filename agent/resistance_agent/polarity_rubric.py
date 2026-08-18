@@ -889,7 +889,7 @@ def run_polarity_rubric(
         "source_video_path": str(video_path.resolve()),
         "source_video_sha256": source_digest,
         "selection_source": selection_source,
-        "stage_manifest_path": str(stage_path.resolve()),
+        "stage_manifest_path": str(stage_path.resolve()) if stage_path else None,
         "action_summary_path": str(action_path.resolve()),
         "groups": groups,
         "endpoint_observation": endpoint,

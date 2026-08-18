@@ -23,6 +23,7 @@ ROOT = PROJECT_ROOT
 DEFAULT_CONFIG = AGENT_ROOT / "config.json"
 VIDEO_SUFFIXES = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 DECISIONS = {"pass", "fail"}
+PUBLISHED_RUBRIC_IDS: tuple[int, ...] = (0, 1, 2, 3, 4, 5, 6, 8)
 LIVE_ROUTING_POLICY = "live_situation_skills.v1"
 FIVE_STAGE_ALGORITHM_ID = "qwen_experiment_action_hierarchical_v2_five_stage"
 FIVE_STAGE_SCHEMA_ID = "resistance_5stage_measurement_recording_v1"
@@ -1464,19 +1465,14 @@ def request_additional_evidence(
     archived: list[dict[str, Any]] = []
     invalidated: list[int] = []
     profile = str(result.get("evidence_profile") or "meter_pair")
-    record_request = profile in {"record_meter", "record_paper"}
-    acquired = (
-        int(result.get("frame_count") or 0) > 0
-        if record_request
-        else int(result.get("selected_frame_count") or 0) > 0
-    )
+    acquired = int(result.get("selected_frame_count") or 0) > 0
     if acquired:
         archive_dir = Path(result["result_path"]).parent / "prior_results"
         archive_dir.mkdir(parents=True, exist_ok=True)
         rubric_results = state.setdefault("rubric_results", {})
-        grouped_rubrics = (7, 9) if record_request else (5, 6)
-        report_key = "7_9" if record_request else "5_6"
-        report_kind = "record_evidence_report" if record_request else "meter_evidence_report"
+        grouped_rubrics = (5, 6)
+        report_key = "5_6"
+        report_kind = "meter_evidence_report"
         for rubric_id in grouped_rubrics:
             value = rubric_results.pop(str(rubric_id), None)
             if not isinstance(value, str) or not value:
@@ -1717,8 +1713,8 @@ def load_rubric_result(run_id: str, rubric_id: int) -> dict[str, Any]:
     run_dir, state = _state(run_id)
     if state["mode"] != "replay":
         raise ToolError("frozen rubric results are only available in replay mode")
-    if rubric_id not in range(10):
-        raise ToolError("rubric_id must be an integer from 0 through 9")
+    if rubric_id not in PUBLISHED_RUBRIC_IDS:
+        raise ToolError(f"rubric_id must be one of {PUBLISHED_RUBRIC_IDS}")
     summary = _load_replay_summary(_state_config(state))
     row = next((item for item in summary["rows"] if str(item.get("video_id")) == state["video_id"]), None)
     if row is None:
@@ -1760,8 +1756,8 @@ def load_rubric_bundle(run_id: str, rubric_ids: list[int]) -> dict[str, Any]:
     """Load multiple frozen replay results through one bounded MCP call."""
     if not isinstance(rubric_ids, list) or not rubric_ids:
         raise ToolError("rubric_ids must be a non-empty list")
-    if any(isinstance(item, bool) or not isinstance(item, int) or item not in range(10) for item in rubric_ids):
-        raise ToolError("rubric_ids must contain integers from 0 through 9")
+    if any(isinstance(item, bool) or not isinstance(item, int) or item not in PUBLISHED_RUBRIC_IDS for item in rubric_ids):
+        raise ToolError(f"rubric_ids must contain only published IDs {PUBLISHED_RUBRIC_IDS}")
     ordered = sorted(set(rubric_ids))
     results = [load_rubric_result(run_id, rubric_id) for rubric_id in ordered]
     run_dir, state = _state(run_id)
@@ -1971,171 +1967,6 @@ def run_meter_rubrics(run_id: str, use_fallback_temporal_guard: bool = False) ->
         "evidence_report": evidence.get("report_path"),
         **adaptive,
         **_skill_metadata(skill_plan, (5, 6)),
-        "source_video_unchanged": True,
-    }
-
-
-def run_record_rubrics(run_id: str, use_fallback_temporal_guard: bool = False) -> dict[str, Any]:
-    """Acquire cycle-bound real video evidence for R7/R9."""
-    run_dir, state = _state(run_id)
-    if state.get("mode") != "execute":
-        raise ToolError("record rubrics are only valid in execute mode")
-    _reject_historical_live_fallback(use_fallback_temporal_guard)
-    skill_plan = _live_skill_plan(run_dir, state)
-    existing_paths = state.get("rubric_results", {})
-    if all(str(rubric_id) in existing_paths for rubric_id in (7, 9)):
-        existing: dict[str, Any] = {}
-        for rubric_id in (7, 9):
-            result_path = resolve_inside(existing_paths[str(rubric_id)], AGENT_ROOT)
-            item = read_json(result_path)
-            expected_score = 1 if item.get("decision") == "pass" else 0
-            if (
-                item.get("schema_version") != "resistance_agent_rubric_result.v2"
-                or item.get("rubric_id") != rubric_id
-                or item.get("video_id") != state.get("video_id")
-                or item.get("source_video_id") != state.get("source_video_id")
-                or item.get("decision") not in DECISIONS
-                or item.get("predicted_score") != expected_score
-                or item.get("execution_mode") != "execute_visual_evidence"
-                or item.get("routing_policy") != LIVE_ROUTING_POLICY
-            ):
-                raise ToolError(f"existing rubric {rubric_id} artifact is invalid")
-            existing[str(rubric_id)] = {
-                "decision": item["decision"],
-                "predicted_score": item["predicted_score"],
-                "confidence": item.get("confidence"),
-                "reason": item.get("reason"),
-                "result_path": str(result_path),
-            }
-        return {
-            "status": state.get("status", "record_rubrics_completed"),
-            "video_id": state["video_id"],
-            "rubrics": existing,
-            "evidence_report": state.get("rubric_evidence_reports", {}).get("7_9"),
-            **_skill_metadata(skill_plan, (7, 9)),
-            "source_video_unchanged": True,
-            "idempotent_replay": True,
-        }
-    if state.get("status") not in {
-        "boundaries_completed",
-        "switch_rubric_completed",
-        "series_rubric_completed",
-        "meter_rubrics_completed",
-        "record_rubrics_completed",
-    } and not use_fallback_temporal_guard:
-        raise ToolError("refine_rubric_boundaries must complete before record rubrics")
-    config = _state_config(state)
-    source = _verify_source_video(state)
-    input_dir = run_dir / "input_video"
-    input_dir.mkdir(exist_ok=True)
-    private_copy = input_dir / source.name
-    if not private_copy.exists():
-        shutil.copy2(source, private_copy)
-    if private_copy.is_symlink() or not private_copy.is_file() or os.path.samefile(source, private_copy):
-        raise ToolError(f"record input is not an isolated file copy: {private_copy}")
-    if private_copy.stat().st_size != source.stat().st_size or sha256(private_copy) != state["video"]["sha256"]:
-        raise ToolError(f"record input copy failed verification: {private_copy}")
-
-    action_path: Path | None = None
-    if isinstance(state.get("action_summary"), str) and state["action_summary"]:
-        candidate = resolve_inside(state["action_summary"], AGENT_ROOT, must_exist=False)
-        if candidate.is_file():
-            action_path = candidate
-    boundary_path: Path | None = None
-    if isinstance(state.get("boundary_summary"), str) and state["boundary_summary"]:
-        candidate = resolve_inside(state["boundary_summary"], AGENT_ROOT, must_exist=False)
-        if candidate.is_file():
-            boundary_path = candidate
-    try:
-        try:
-            from . import record_rubrics as record_module
-        except ImportError:
-            import record_rubrics as record_module  # type: ignore
-
-        arguments = {
-            "video_path": private_copy,
-            "source_video_id": state["source_video_id"],
-            "video_id": state["video_id"],
-            "run_dir": run_dir,
-            "model_config": config["models"]["qwen"],
-            "action_summary_path": action_path,
-            "fallback_action_summary_path": None,
-            "allow_historical_fallback": False,
-            "skill_plan": skill_plan,
-        }
-        if getattr(record_module.run_record_rubrics, "supports_boundary_summary", False):
-            arguments["boundary_summary_path"] = boundary_path
-        evidence = record_module.run_record_rubrics(**arguments)
-    except (OSError, RuntimeError, ValueError, KeyError, json.JSONDecodeError) as exc:
-        raise ToolError(f"record evidence acquisition failed: {type(exc).__name__}: {exc}") from exc
-
-    paths: dict[str, str] = {}
-    compact: dict[str, Any] = {}
-    for rubric_id, key in ((7, "rubric_7"), (9, "rubric_9")):
-        item = evidence.get(key)
-        if not isinstance(item, dict) or item.get("decision") not in DECISIONS:
-            raise ToolError(f"record evidence returned invalid rubric {rubric_id} result")
-        predicted = 1 if item["decision"] == "pass" else 0
-        if item.get("predicted_score") != predicted:
-            raise ToolError(f"record evidence rubric {rubric_id} score mismatch")
-        result = {
-            "schema_version": "resistance_agent_rubric_result.v2",
-            "video_id": state["video_id"],
-            "source_video_id": state["source_video_id"],
-            "rubric_id": rubric_id,
-            "decision": item["decision"],
-            "predicted_score": predicted,
-            "confidence": item.get("confidence"),
-            "reason": item.get("reason"),
-            "source_artifact": evidence.get("report_path"),
-            "diagnostics": item.get("diagnostics", {}),
-            "execution_mode": "execute_visual_evidence",
-            **_skill_metadata(skill_plan, (7, 9)),
-        }
-        result_path = run_dir / "rubrics" / f"rubric_{rubric_id}.json"
-        write_json(result_path, result)
-        reopened = read_json(result_path)
-        if reopened.get("decision") not in DECISIONS or reopened.get("predicted_score") != predicted:
-            raise ToolError(f"rubric {rubric_id} artifact verification failed")
-        paths[str(rubric_id)] = str(result_path.resolve())
-        compact[str(rubric_id)] = {
-            "decision": result["decision"],
-            "predicted_score": result["predicted_score"],
-            "confidence": result["confidence"],
-            "reason": result["reason"],
-            "result_path": paths[str(rubric_id)],
-        }
-
-    _verify_source_video(state)
-    state["rubric_results"].update(paths)
-    state.setdefault("rubric_evidence_reports", {})["7_9"] = evidence.get("report_path")
-    state["status"] = "record_rubrics_completed"
-    state["skill_plan"] = str((run_dir / "skills" / "live_skill_plan.json").resolve())
-    state["tool_calls"].append(
-        {
-            "tool": "run_record_rubrics",
-            "rubric_ids": [7, 9],
-            "evidence_report": evidence.get("report_path"),
-            "at": utc_now(),
-        }
-    )
-    _save_state(run_dir, state)
-    adaptive = {
-        "adaptive_evidence_recommended": bool(
-            evidence.get("adaptive_evidence_recommended", False)
-        ),
-        "adaptive_evidence_reasons": list(
-            evidence.get("adaptive_evidence_reasons") or []
-        ),
-        "adaptive_request_template": evidence.get("adaptive_request_template"),
-    }
-    return {
-        "status": state["status"],
-        "video_id": state["video_id"],
-        "rubrics": compact,
-        "evidence_report": evidence.get("report_path"),
-        **adaptive,
-        **_skill_metadata(skill_plan, (7, 9)),
         "source_video_unchanged": True,
     }
 
@@ -2618,7 +2449,6 @@ def run_remaining_rubrics(run_id: str, use_fallback_temporal_guard: bool = False
         "switch_rubric_completed",
         "series_rubric_completed",
         "meter_rubrics_completed",
-        "record_rubrics_completed",
         "remaining_rubrics_completed",
     } and not use_fallback_temporal_guard:
         raise ToolError("refine_rubric_boundaries must complete before remaining rubrics")
@@ -2816,7 +2646,6 @@ def run_polarity_rubric(run_id: str, use_fallback_temporal_guard: bool = False) 
         "switch_rubric_completed",
         "series_rubric_completed",
         "meter_rubrics_completed",
-        "record_rubrics_completed",
         "remaining_rubrics_completed",
         "polarity_rubric_completed",
     } and not use_fallback_temporal_guard:
@@ -2914,7 +2743,7 @@ def run_polarity_rubric(run_id: str, use_fallback_temporal_guard: bool = False) 
 
 def inspect_run_status(run_id: str) -> dict[str, Any]:
     run_dir, state = _state(run_id)
-    missing = [index for index in range(10) if str(index) not in state.get("rubric_results", {})]
+    missing = [index for index in PUBLISHED_RUBRIC_IDS if str(index) not in state.get("rubric_results", {})]
     return {
         "run_id": state["run_id"],
         "mode": state["mode"],
@@ -2929,7 +2758,7 @@ def inspect_run_status(run_id: str) -> dict[str, Any]:
         "routing_policy": LIVE_ROUTING_POLICY if state.get("mode") == "execute" else None,
         "rubric_summary": state.get("rubric_summary"),
         "rubric_evidence_reports": state.get("rubric_evidence_reports", {}),
-        "completed_rubrics": 10 - len(missing),
+        "completed_rubrics": len(PUBLISHED_RUBRIC_IDS) - len(missing),
         "missing_rubrics": missing,
         "run_dir": str(run_dir.resolve()),
     }
@@ -2939,7 +2768,7 @@ def validate_run(run_id: str) -> dict[str, Any]:
     run_dir, state = _state(run_id)
     errors: list[str] = []
     decisions: dict[str, str] = {}
-    for rubric_id in range(10):
+    for rubric_id in PUBLISHED_RUBRIC_IDS:
         raw_path = state.get("rubric_results", {}).get(str(rubric_id))
         if not raw_path:
             errors.append(f"rubric_{rubric_id}_missing")
@@ -2988,7 +2817,7 @@ def finalize_run(run_id: str) -> dict[str, Any]:
     _verify_source_video(state)
     results = [
         read_json(resolve_inside(state["rubric_results"][str(index)], AGENT_ROOT))
-        for index in range(10)
+        for index in PUBLISHED_RUBRIC_IDS
     ]
     final = {
         "schema_version": "resistance_agent_final.v2",
@@ -3031,7 +2860,6 @@ RUBRIC_PRODUCER_GROUPS: tuple[tuple[str, tuple[int, ...]], ...] = (
     ("run_switch_rubric", (3,)),
     ("run_series_rubric", (1,)),
     ("run_meter_rubrics", (5, 6)),
-    ("run_record_rubrics", (7, 9)),
     ("run_remaining_rubrics", (0, 2, 8)),
     ("run_polarity_rubric", (4,)),
 )
@@ -3044,8 +2872,8 @@ def _rubric_bundle_plan(
         raise ToolError("rubric_ids must be a non-empty array")
     normalized: list[int] = []
     for rubric_id in rubric_ids:
-        if type(rubric_id) is not int or rubric_id not in range(10):
-            raise ToolError("each rubric_id must be an integer from 0 through 9")
+        if type(rubric_id) is not int or rubric_id not in PUBLISHED_RUBRIC_IDS:
+            raise ToolError(f"each rubric_id must be one of {PUBLISHED_RUBRIC_IDS}")
         if rubric_id not in normalized:
             normalized.append(rubric_id)
 
@@ -3169,7 +2997,6 @@ TOOL_REGISTRY: dict[str, Callable[..., dict[str, Any]]] = {
     "run_switch_rubric": run_switch_rubric,
     "run_series_rubric": run_series_rubric,
     "run_meter_rubrics": run_meter_rubrics,
-    "run_record_rubrics": run_record_rubrics,
     "run_remaining_rubrics": run_remaining_rubrics,
     "run_polarity_rubric": run_polarity_rubric,
     "run_rubric_bundle": run_rubric_bundle,
@@ -3219,12 +3046,12 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _schema(
         "request_additional_evidence",
-        "Request bounded adjacent current-run frames when R5/R6 meter evidence or R7/R9 meter/paper evidence is weak; the local executor enforces stage, duration, frame-count and dynamic-ROI limits.",
+        "Request bounded adjacent current-run frames when R5/R6 meter evidence is weak; the local executor enforces stage, duration, frame-count and dynamic-ROI limits.",
         {
             "run_id": RUN_ID,
             "rubric_ids": {
                 "type": "array",
-                "items": {"type": "integer", "enum": [5, 6, 7, 9]},
+                "items": {"type": "integer", "enum": [5, 6]},
                 "minItems": 1,
             },
             "reason": {
@@ -3235,13 +3062,6 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                     "pointer_state_conflict",
                     "low_confidence",
                     "adjacent_state_change",
-                    "paper_not_found",
-                    "writing_occlusion",
-                    "field_missing",
-                    "single_frame_support",
-                    "digit_conflict",
-                    "row_identity_conflict",
-                    "recording_stage_missing",
                     "ammeter_missing",
                     "voltmeter_missing",
                     "ammeter_no_stable_deflection",
@@ -3274,14 +3094,8 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             },
             "interval_seconds": {"type": "number", "minimum": 0.1, "maximum": 1.0},
             "max_frames": {"type": "integer", "minimum": 1, "maximum": 32},
-            "roi_mode": {"type": "string", "enum": ["dynamic_meter_candidates", "dynamic_paper_tracking"]},
-            "view": {"type": "string", "enum": ["meter_pair", "paper_full", "paper_fields"]},
-            "evidence_profile": {"type": "string", "enum": ["meter_pair", "record_meter", "record_paper"]},
-            "cycle": {"type": "integer", "enum": [1, 2]},
-            "target_fields": {
-                "type": "array",
-                "items": {"type": "string", "enum": ["u1", "i1", "u2", "i2"]},
-            },
+            "roi_mode": {"type": "string", "enum": ["dynamic_meter_candidates"]},
+            "view": {"type": "string", "enum": ["meter_pair"]},
             "target_roles": {
                 "type": "array",
                 "items": {"type": "string", "enum": ["ammeter", "voltmeter"]},
@@ -3292,7 +3106,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             },
             "search_mode": {
                 "type": "string",
-                "enum": ["adjacent_dense", "post_write_reveal", "recording_stage_coverage", "current_run_broad_writing_search", "adjacent_meter_dense", "current_run_meter_search"],
+                "enum": ["adjacent_meter_dense", "current_run_meter_search"],
             },
         },
         ["run_id", "rubric_ids", "reason", "time_ranges"],
@@ -3316,12 +3130,6 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         ["run_id"],
     ),
     _schema(
-        "run_record_rubrics",
-        "Use cycle-bound Temporal Guard windows, OpenCV and Qwen on the real video copy to generate binary R7/R9 evidence artifacts.",
-        {"run_id": RUN_ID},
-        ["run_id"],
-    ),
-    _schema(
         "run_remaining_rubrics",
         "Use Temporal Guard windows, OpenCV and Qwen on the real video copy to generate binary R0/R2/R8 evidence artifacts.",
         {"run_id": RUN_ID},
@@ -3340,30 +3148,30 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "run_id": RUN_ID,
             "rubric_ids": {
                 "type": "array",
-                "items": {"type": "integer", "minimum": 0, "maximum": 9},
+                "items": {"type": "integer", "enum": [0, 1, 2, 3, 4, 5, 6, 8]},
                 "minItems": 1,
                 "description": "Requested rubric IDs; duplicates are removed and grouped producers may co-produce related rubrics.",
             },
         },
         ["run_id", "rubric_ids"],
     ),
-    _schema("load_rubric_result", "Load one frozen binary rubric result in explicit five-video replay mode.", {"run_id": RUN_ID, "rubric_id": {"type": "integer", "minimum": 0, "maximum": 9}}, ["run_id", "rubric_id"]),
+    _schema("load_rubric_result", "Load one frozen binary rubric result in explicit replay mode.", {"run_id": RUN_ID, "rubric_id": {"type": "integer", "enum": [0, 1, 2, 3, 4, 5, 6, 8]}}, ["run_id", "rubric_id"]),
     _schema(
         "load_rubric_bundle",
-        "Load the requested frozen binary rubric results in one explicit five-video replay call.",
+        "Load the requested frozen binary rubric results in one explicit replay call.",
         {
             "run_id": RUN_ID,
             "rubric_ids": {
                 "type": "array",
-                "items": {"type": "integer", "minimum": 0, "maximum": 9},
+                "items": {"type": "integer", "enum": [0, 1, 2, 3, 4, 5, 6, 8]},
                 "minItems": 1,
             },
         },
         ["run_id", "rubric_ids"],
     ),
     _schema("inspect_run_status", "Return current artifacts and missing rubric results.", {"run_id": RUN_ID}, ["run_id"]),
-    _schema("validate_run", "Validate that all ten results satisfy the pass/fail contract.", {"run_id": RUN_ID}, ["run_id"]),
-    _schema("finalize_run", "Write the final result only after ten binary artifacts validate.", {"run_id": RUN_ID}, ["run_id"]),
+    _schema("validate_run", "Validate that all published binary results satisfy the pass/fail contract.", {"run_id": RUN_ID}, ["run_id"]),
+    _schema("finalize_run", "Write the final result only after all published binary artifacts validate.", {"run_id": RUN_ID}, ["run_id"]),
 ]
 
 

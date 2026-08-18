@@ -43,18 +43,18 @@ except ImportError:
 
 SYSTEM_PROMPT = """你是伏安法测电阻视频流水线的调度 Agent。
 你只选择注册过的 MCP 工具，不直接看像素、不虚构工件、不执行任意命令。
-replay 模式：inspect_video -> create_run -> load_rubric_bundle(rubric_ids=[0..9]) ->
+当前 Agent 发布集为 R0-R6、R8；R7/R9 暂不发布。
+replay 模式：inspect_video -> create_run -> load_rubric_bundle(rubric_ids=[0,1,2,3,4,5,6,8]) ->
 validate_run -> finalize_run。
 prepare 模式：inspect_video -> create_run -> run_full_pipeline(dry_run=true) ->
 refine_rubric_boundaries(execute=false) -> inspect_run_status，然后结束，绝不伪装成十项评分完成。
  execute 模式：inspect_video -> create_run -> run_full_pipeline(dry_run=false) ->
  refine_rubric_boundaries(execute=true) -> plan_live_skills -> run_adaptive_frame_agent ->
- run_rubric_bundle(rubric_ids=[0,1,2,3,4,5,6,7,8,9]) ->
+ run_rubric_bundle(rubric_ids=[0,1,2,3,4,5,6,8]) ->
 inspect_run_status -> validate_run -> finalize_run。
-如果 R5/R6 电表证据或 R7/R9 纸面数字证据被遮挡、冲突、只有单帧支持或置信度过低，
+如果 R5/R6 电表证据被遮挡、冲突、只有单帧支持或置信度过低，
 使用生产组返回的 adaptive_request_template 原样调用 request_additional_evidence，
-然后重新调用对应的 run_rubric_bundle。电表组重跑 [5,6]；记录纸组重跑 [7,9]。
-记录纸申请只能由纸面自身质量触发，不能由纸面与电表不匹配触发；每周期最多两轮。
+然后重新调用对应的 run_rubric_bundle，电表组重跑 [5,6]。
 plan_live_skills 根据当前视频的阶段、重接线次数、测量次数和记录轮次选择 Skills；
 禁止依据 video_id、文件名、SHA 或历史结果工件选择算法、ROI 或结论。
 run_rubric_bundle 会把同组 Rubric 合并为一次取证生产调用；不要再调用单项生产工具。
@@ -184,7 +184,7 @@ def _pin_openai_arguments(
     elif name == "refine_rubric_boundaries":
         pinned["execute"] = mode == "execute"
     elif name == "load_rubric_bundle":
-        pinned["rubric_ids"] = list(range(10))
+        pinned["rubric_ids"] = [0, 1, 2, 3, 4, 5, 6, 8]
     return pinned
 
 
@@ -226,7 +226,7 @@ def run_deterministic(
         {"run_id": run_id, "video_ref": video_ref, "mode": mode, "config_path": str(config_path)},
     )
     if mode == "replay":
-        invoke("load_rubric_bundle", {"run_id": run_id, "rubric_ids": list(range(10))})
+        invoke("load_rubric_bundle", {"run_id": run_id, "rubric_ids": [0, 1, 2, 3, 4, 5, 6, 8]})
         invoke("validate_run", {"run_id": run_id})
         final = invoke("finalize_run", {"run_id": run_id})
         return {"scheduler": "deterministic", "transcript": transcript, "final": final}
@@ -242,7 +242,7 @@ def run_deterministic(
         else None
     )
     rubric_bundle = (
-        invoke("run_rubric_bundle", {"run_id": run_id, "rubric_ids": list(range(10))})
+        invoke("run_rubric_bundle", {"run_id": run_id, "rubric_ids": [0, 1, 2, 3, 4, 5, 6, 8]})
         if mode == "execute"
         else None
     )
@@ -255,11 +255,7 @@ def run_deterministic(
             if producer.get("adaptive_evidence_recommended") is not True or not isinstance(template, dict):
                 continue
             profile = str(template.get("evidence_profile") or "meter_pair")
-            cycle = (
-                template.get("cycle")
-                if profile in {"record_meter", "record_paper"}
-                else None
-            )
+            cycle = None
             key = f"{profile}:{cycle}"
             limit = 2
             if adaptive_rounds.get(key, 0) >= limit:
@@ -270,17 +266,11 @@ def run_deterministic(
                 {"run_id": run_id, **template},
             )
             acquired = (
-                int(adaptive_result.get("frame_count") or 0) > 0
-                if profile in {"record_meter", "record_paper"}
-                else int(adaptive_result.get("selected_frame_count") or 0) > 0
+                int(adaptive_result.get("selected_frame_count") or 0) > 0
             )
             if not acquired:
                 continue
-            rerun_ids = (
-                [7, 9]
-                if profile in {"record_meter", "record_paper"}
-                else [5, 6]
-            )
+            rerun_ids = [5, 6]
             rerun = invoke(
                 "run_rubric_bundle",
                 {"run_id": run_id, "rubric_ids": rerun_ids},

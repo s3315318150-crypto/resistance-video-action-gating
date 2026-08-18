@@ -18,17 +18,13 @@ import cv2
 
 ROOT = Path(__file__).resolve().parent.parent
 RUBRIC_ID = "resistance.meter_polarity_lenient_v15_apparatus_priors"
-DEFAULT_STAGE_MANIFEST = (
-    ROOT
-    / "outputs"
-    / "measurement_recording_frames_1fps_20260804_experiment"
-    / "measurement_recording_manifest.json"
-)
-DEFAULT_REFERENCE_MANIFEST = ROOT / "outputs" / "instrument_reference_candidates_v1" / "manifest.json"
-DEFAULT_DETECTOR_ROOT = (
-    ROOT / "outputs" / "colored_meter_v4_measurement_recording_1fps_20260804_experiment"
-)
-DEFAULT_OUTPUT_ROOT = ROOT / "outputs" / "meter_polarity_measurement_recording_lenient_v15_apparatus_priors"
+# Historical experiment manifests are intentionally not bundled.  The standalone
+# helper accepts all data roots explicitly; the live Agent path supplies only the
+# current run's stage summary and dynamic frame candidates.
+DEFAULT_STAGE_MANIFEST = None
+DEFAULT_REFERENCE_MANIFEST = None
+DEFAULT_DETECTOR_ROOT = None
+DEFAULT_OUTPUT_ROOT = None
 OBSERVATION_PHASES = ("measurement", "recording")
 OBSERVATION_STAGES = {"measurement_1", "measurement_2", "recording_1", "recording_2"}
 METER_STATES = {"likely_correct", "likely_incorrect", "unclear"}
@@ -975,11 +971,11 @@ def validate_response(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run lenient binary ammeter/voltmeter polarity assessment.")
-    parser.add_argument("--video-id", default="16")
-    parser.add_argument("--stage-manifest", type=Path, default=DEFAULT_STAGE_MANIFEST)
-    parser.add_argument("--reference-manifest", type=Path, default=DEFAULT_REFERENCE_MANIFEST)
-    parser.add_argument("--detector-root", type=Path, default=DEFAULT_DETECTOR_ROOT)
-    parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
+    parser.add_argument("--video-id", required=True, help="Input/output association only; never selects an algorithm.")
+    parser.add_argument("--stage-manifest", type=Path, required=True)
+    parser.add_argument("--reference-manifest", type=Path, required=True)
+    parser.add_argument("--detector-root", type=Path, required=True)
+    parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--max-groups-per-phase", type=int, default=4)
     parser.add_argument("--prepare-only", action="store_true")
     args = parser.parse_args()

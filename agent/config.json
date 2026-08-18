@@ -64,9 +64,6 @@
       "algorithm": "adaptive terminal sampling with dynamic topology ROI",
       "input_policy": "current_run_visual_evidence_only"
     },
-    "record_rubrics": {
-      "algorithm": "cycle-bound dynamic paper and meter evidence"
-    },
     "remaining_rubrics": {
       "algorithm": "stage-selected current-run visual evidence",
       "rubric8_script": "agent/scripts/run_rubric8_specialized.py",

@@ -91,6 +91,28 @@ class PublicReleaseContractTests(unittest.TestCase):
             self.assertFalse(plan["historical_artifacts_used"])
             self.assertFalse(plan["fixed_video_roi_used"])
 
+    def test_recording_only_situation_selects_pre_recording_polarity_skill(self) -> None:
+        stage_runs = [
+            {"stage": "circuit_wiring", "start_seconds": 2.0, "end_seconds": 8.0},
+            {"stage": "recording_1", "start_seconds": 13.0, "end_seconds": 16.0},
+        ]
+        with tempfile.TemporaryDirectory(dir=AGENT_ROOT) as temporary:
+            root = Path(temporary)
+            summary = root / "summary.json"
+            summary.write_text(
+                json.dumps({"source_observed_stage_runs": stage_runs}),
+                encoding="utf-8",
+            )
+            plan = select_live_skills(
+                source_video_id="anonymous-input.mp4",
+                boundary_summary_path=summary,
+                action_summary_path=None,
+                allowed_root=root,
+            )
+
+        polarity = next(item for item in plan["selected_skills"] if item["rubric_ids"] == [4])
+        self.assertEqual("polarity.pre_recording_dynamic_roi", polarity["skill_id"])
+
     def test_polarity_runner_uses_public_environment_configuration(self) -> None:
         runner = AGENT_ROOT / "scripts" / "run_qwen_meter_polarity_lenient.py"
         source = runner.read_text(encoding="utf-8")
@@ -116,37 +138,21 @@ class PublicReleaseContractTests(unittest.TestCase):
 
     def test_live_modules_have_no_development_video_defaults_or_fixed_rois(self) -> None:
         module_root = AGENT_ROOT / "resistance_agent"
-        for name in ("meter_rubrics.py", "record_rubrics.py", "switch_rubric.py"):
+        for name in ("meter_rubrics.py", "switch_rubric.py"):
             source = (module_root / name).read_text(encoding="utf-8")
             self.assertNotIn("all_five", source)
             self.assertNotIn("DEFAULT_ACTION_SUMMARY", source)
             self.assertNotIn("fallback_action_summary_path or", source)
 
-        record_source = (module_root / "record_rubrics.py").read_text(encoding="utf-8")
-        for fixed_map in (
-            "METER_ROIS",
-            "METER_ROLE_ROIS",
-            "METER_FACE_ROIS",
-            "METER_FACE_GEOMETRY",
-            "PAPER_ROIS",
-            "PAPER_FIELD_ROIS",
-        ):
-            self.assertNotIn(fixed_map, record_source)
-
-        tree = ast.parse(record_source)
-        run_function = next(
-            node
-            for node in tree.body
-            if isinstance(node, ast.FunctionDef) and node.name == "run_record_rubrics"
-        )
-        argument_names = [item.arg for item in run_function.args.args]
-        self.assertNotIn("allow_video_calibration", argument_names)
-
         toolkit_source = (module_root / "toolkit.py").read_text(encoding="utf-8")
-        record_tool = toolkit_source.split("def run_record_rubrics", 1)[1].split(
-            "def run_switch_rubric", 1
-        )[0]
-        self.assertNotIn('"allow_video_calibration"', record_tool)
+        self.assertNotIn('"run_record_rubrics"', toolkit_source)
+
+    def test_agent_release_publishes_r0_to_r6_and_r8_only(self) -> None:
+        toolkit_source = (AGENT_ROOT / "resistance_agent" / "toolkit.py").read_text(encoding="utf-8")
+        self.assertIn("PUBLISHED_RUBRIC_IDS", toolkit_source)
+        self.assertNotIn('"run_record_rubrics"', toolkit_source)
+        self.assertNotIn('"record.two_cycle_consistency"', toolkit_source)
+        self.assertFalse((AGENT_ROOT / "resistance_agent" / "record_rubrics.py").exists())
 
 
 if __name__ == "__main__":
