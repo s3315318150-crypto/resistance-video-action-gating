@@ -2,8 +2,6 @@
 
 本仓库同时保留 Workflow 与 Agent 两条实现路线。两者共享“先定位动作、再按 Rubric 取证、最终输出 `pass` / `fail`”的基本口径，但执行方式不同。
 
-代码型 AI 开始修改前请先阅读 [AGENTS.md](./AGENTS.md)，其中汇总了正式执行路径、Rubric 模块映射、反过拟合约束、验证命令和发布边界。
-
 | 项目 | 说明 |
 |---|---|
 | [Workflow](./workflow/) | 包含原始 V1 和成熟 V2 |
