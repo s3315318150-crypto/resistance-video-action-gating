@@ -5,7 +5,7 @@
 当前正式范围：
 
 ```text
-R0, R1, R2, R3, R4, R5, R6, R8
+R0, R1, R2, R3, R4, R5, R6, R7, R8, R9
 ```
 
 每项主结果固定为 `pass` 或 `fail`。置信度、遮挡、冲突、候选帧和模型原文只用于诊断。
@@ -71,8 +71,9 @@ cleanup_action
 | `run_switch_rubric` | R3 | 开关与接线动作重叠 |
 | `run_series_rubric` | R1 | 电流表主回路拓扑 |
 | `run_meter_rubrics` | R5、R6 | 表头、指针、刻度与量程 |
-| `run_remaining_rubrics` | R0、R2、R8 | 整理、并联和换电池时序 |
 | `run_polarity_rubric` | R4 | 消费同一 run 的 R5 指针证据 |
+| `run_record_rubrics` | R7、R9 | 分轮纸面/表盘比较和 R4/R5/R6 门控 |
+| `run_remaining_rubrics` | R0、R2、R8 | 整理、并联和换电池时序 |
 
 共享的是当前 run 已生成的原帧、ROI 和观察，不是以前运行的预测。
 
@@ -444,7 +445,29 @@ agent/runs/<run-id>/rubrics/rubric_6.json
 
 R5/R6 共享定位和指针计算以减少重复抽帧与请求，但分别保存结果和原因。
 
-## 9. R8：换电池前断开开关
+## 9. R7/R9：分轮记录与电表状态门控
+
+R7 对应第一轮记录，R9 对应第二轮记录。Agent 从当前视频的 `recording_1/2` 周期动态定位记录纸和双表，分别读取纸面 U/I 与同轮电表读数，不跨轮拼接证据。
+
+最终规则为：
+
+```text
+R7/R9 = 同轮纸面与表盘读数匹配
+        AND R4 正负接线柱正确
+        AND R5 指针正常偏转
+        AND R6 电表量程合适
+```
+
+R4、R5、R6 任一明确为 `fail`，R7/R9 直接 `fail`。Bundle 自动先运行 R5/R6、R4，再运行 R7/R9；门控只读取当前 run 的 `rubrics/rubric_4.json`、`rubric_5.json`、`rubric_6.json`。结果诊断保存 `meter_prerequisite_gate`、失败项、同轮窗口、证据帧和数值比较。
+
+```text
+agent/resistance_agent/record_rubrics.py
+agent/runs/<run-id>/record_rubrics/record_evidence_report.json
+agent/runs/<run-id>/rubrics/rubric_7.json
+agent/runs/<run-id>/rubrics/rubric_9.json
+```
+
+## 10. R8：换电池前断开开关
 
 ### 目标
 
@@ -514,7 +537,7 @@ agent/runs/<run-id>/rubrics/rubric_8.json
 
 详细文档：[R8 动态电池 ROI 与事件链](./r8_dynamic_roi/README.md)
 
-## 10. 统一结果结构
+## 11. 统一结果结构
 
 ```json
 {
@@ -536,7 +559,7 @@ agent/runs/<run-id>/rubrics/rubric_8.json
 
 `decision=pass` 对应分数 1，`decision=fail` 对应分数 0。每个结果必须来自当前 run。
 
-## 11. 反过拟合规则
+## 12. 反过拟合规则
 
 - 不按视频 ID、文件名或学生姓名选择算法。
 - 不读取过去时间窗、ROI、预测或人工复核。
@@ -556,7 +579,7 @@ rg -n "if.*video_id|video_38|fixed.*roi|historical|Excel" agent\resistance_agent
 
 命中关联字段或审计测试不一定是问题；正式路由分支、历史回退、视频专属图工件和固定坐标必须删除。
 
-## 12. 当前效果和限制
+## 13. 当前效果和限制
 
 | Rubric | 已记录开发集口径 | 限制 |
 |---|---:|---|
@@ -567,6 +590,7 @@ rg -n "if.*video_id|video_38|fixed.*roi|historical|Excel" agent\resistance_agent
 | R4 | 回归 `5/5 = 100%` | 主要复用 R5，极性语义需独立验证 |
 | R5 | 未单独宣传准确率 | 不能从 R4/R6 反推 |
 | R6 | `5/5 = 100%` | 更接近稳定指针状态代理 |
+| R7/R9 | 尚未形成公开版 fresh 准确率 | 新门控接入后需重新冻结开发集结果 |
 | R8 | 明确标签 `4/4 = 100%` | 含存疑标签和接口兜底样本 |
 
 当前没有新视频泛化准确率。正确顺序是先冻结 Agent，再跑未参与开发的新视频，冻结预测后才读取 Excel。

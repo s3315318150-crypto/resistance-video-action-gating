@@ -277,6 +277,19 @@ def select_live_skills(
             else "no measurement or recording stage; broad visual search",
             dynamic_meter_candidates=True,
         ),
+        _skill(
+            "record.cycle_bound_dynamic_roi"
+            if recording_cycle_count
+            else "record.broad_cycle_search",
+            [7, 9],
+            "recording cycles observed; bind paper and meter evidence by cycle"
+            if recording_cycle_count
+            else "no recording stage; use uniform current-run broad cycle search",
+            cycle_mode="all_observed_cycles" if recording_cycle_count else "broad_cycle_search",
+            window_mode="observation_recording_cycles" if recording_cycle_count else "broad_search",
+            roi_mode="dynamic_current_frame_paper_and_meter_candidates",
+            fusion_policy="same_cycle_record_match_and_r4_r5_r6_gate",
+        ),
     ]
     return {
         "schema_version": "resistance_agent_live_skill_plan.v1",

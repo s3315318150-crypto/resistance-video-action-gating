@@ -176,6 +176,18 @@ def _polarity_defaults(**overrides: Any) -> dict[str, Any]:
     return values
 
 
+def _record_defaults(**overrides: Any) -> dict[str, Any]:
+    values = {
+        "cycle_mode": "all_observed_cycles",
+        "window_mode": "observation_recording_cycles",
+        "roi_mode": "dynamic_current_frame_paper_and_meter_candidates",
+        "prompt_instruction": "Compare each cycle's visible handwritten U/I values with meter readings from the same cycle, then require current-run R4/R5/R6 to pass.",
+        "fusion_policy": "same_cycle_record_match_and_r4_r5_r6_gate",
+    }
+    values.update(overrides)
+    return values
+
+
 def _spec(skill_id: str, producer_tool: str, rubric_ids: tuple[int, ...], defaults: dict[str, Any]) -> SkillExecutor:
     return SkillExecutor(skill_id, producer_tool, rubric_ids, defaults)
 
@@ -210,6 +222,8 @@ EXECUTOR_REGISTRY: dict[str, SkillExecutor] = {
         _spec("polarity.explicit_measurement_dynamic_roi", "run_polarity_rubric", (4,), _polarity_defaults()),
         _spec("polarity.pre_recording_dynamic_roi", "run_polarity_rubric", (4,), _polarity_defaults(stage_mode="pre_recording_recovery", max_stage_frames=10)),
         _spec("polarity.broad_dynamic_roi_search", "run_polarity_rubric", (4,), _polarity_defaults(stage_mode="broad_search", max_stage_frames=12, pointer_min_confidence=0.8)),
+        _spec("record.cycle_bound_dynamic_roi", "run_record_rubrics", (7, 9), _record_defaults()),
+        _spec("record.broad_cycle_search", "run_record_rubrics", (7, 9), _record_defaults(cycle_mode="broad_cycle_search", window_mode="broad_search")),
     )
 }
 
