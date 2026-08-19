@@ -10,8 +10,10 @@ details.
 agent/resistance_agent/toolkit.py
   -> resistance_agent/meter_rubrics.py
   -> current-run Qwen observations
-  -> cpu_tick_meter_reading.py
-  -> dynamic SIFT face localization and printed-scale consensus
+  -> closed_stable_stage_producer.py (optional current-run four-stage search)
+  -> closed_stable_r6_cv_v3.py (R6 geometric state reducer)
+  -> cpu_tick_meter_reading.py (printed-grid reading and R5/R6 fusion)
+  -> repository-local OpenCV modules
   -> pass/fail fusion
   -> agent/runs/<run-id>/rubrics/rubric_5.json and rubric_6.json
 ```
@@ -23,7 +25,9 @@ The only primary outcomes are `pass` and `fail`.
 
 | File | Responsibility |
 |---|---|
-| `agent/resistance_agent/meter_rubrics.py` | Current-run frame selection, Qwen observation, and R5/R6 fusion |
+| `agent/resistance_agent/meter_rubrics.py` | R5/R6 orchestration, Qwen observations, CPU reader invocation, R6 reducer invocation and final fusion |
+| `agent/resistance_agent/skills/closed_stable_r6_cv_v3.py` | Zero, reverse, normal, full-scale and overrange geometry states, followed by binary R6 reduction |
+| `agent/resistance_agent/skills/closed_stable_stage_producer.py` | Optional current-video stage-window production and OpenCV search; it does not load video-specific ROIs or historical windows |
 | `agent/resistance_agent/skills/cpu_tick_meter_reading.py` | CPU printed-grid reading and direct binary evidence fusion |
 | `agent/resistance_agent/skills/r5_r6_dense_meter_state/generic_meter_tick_batch_v4_role_glyph.py` | SIFT face matching, perspective normalization, role glyph and terminal evidence |
 | `agent/resistance_agent/skills/r5_r6_dense_meter_state/wire_occlusion_black_edge_v2.py` | Red lead and adjacent black-edge occlusion mask |
@@ -32,6 +36,15 @@ The only primary outcomes are `pass` and `fail`.
 | `agent/resistance_agent/skills/r5_r6_dense_meter_state/scale_tick_grid_batch_v1.py` | Multi-frame grid endpoint consensus |
 | `agent/resistance_agent/skills/r5_r6_dense_meter_state/count_meter_ticks_v1.py` | Thirty-division conversion and half-up rounding |
 | `agent/assets/meter_calibration/` | Anonymous shared-device references and calibration only |
+
+The development workspace originally invoked a coarse-to-fine OpenCV entry
+point from a separate `gauge_reader_cpu_baseline` directory. The public Agent
+packages the required runtime components under
+`agent/resistance_agent/skills/r5_r6_dense_meter_state/` and uses only
+repository-relative paths. Private absolute paths are not part of the release.
+
+`AI_CONTEXT.md` is navigation documentation. It is not imported by the Agent
+and does not implement or modify scoring behavior.
 
 ## Constraints
 

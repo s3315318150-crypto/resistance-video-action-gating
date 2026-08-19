@@ -27,6 +27,24 @@ The shared device references are in
 `agent/assets/meter_calibration/`. They contain no student, video or Excel
 metadata. Every input frame is localized again; no video-number ROI is used.
 
+## Implementation map
+
+R5/R6 is a composed execution path rather than one standalone file:
+
+| Layer | Repository file | Role |
+|---|---|---|
+| Agent orchestration | `agent/resistance_agent/meter_rubrics.py` | Select current-run evidence, request Qwen observations, invoke CPU and R6 reducers, and fuse the final binary results |
+| R6 geometry reducer | `agent/resistance_agent/skills/closed_stable_r6_cv_v3.py` | Classify zero, reverse, normal, full-scale and overrange states, then emit R6 `pass` or `fail` |
+| Current-video stage producer | `agent/resistance_agent/skills/closed_stable_stage_producer.py` | Build search windows from current-run stages and invoke an optional repository-local OpenCV producer |
+| CPU tick fusion | `agent/resistance_agent/skills/cpu_tick_meter_reading.py` | Locate printed ticks, apply the thirty-division conversion, recognize reverse/overrange evidence and fuse direct CPU evidence into R5/R6 |
+| OpenCV core | `agent/resistance_agent/skills/r5_r6_dense_meter_state/` | Face matching, perspective normalization, wire masking, arc-to-hub pointer geometry and multi-frame tick consensus |
+
+The private development workspace used a separate coarse-to-fine OpenCV
+entry point with a one-second coarse scan and 0.1-second dense search. The
+public release does not retain that machine-specific absolute path. Runtime
+components and calibration assets used by the published path are packaged in
+the repository and referenced relatively.
+
 ## Face localization
 
 The CPU locator extracts SIFT features from the current frame, applies a Lowe
