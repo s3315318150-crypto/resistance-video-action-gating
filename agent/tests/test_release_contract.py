@@ -147,6 +147,18 @@ class PublicReleaseContractTests(unittest.TestCase):
         toolkit_source = (module_root / "toolkit.py").read_text(encoding="utf-8")
         self.assertNotIn('"run_record_rubrics"', toolkit_source)
 
+    def test_r5_r6_public_cpu_assets_are_repository_local(self) -> None:
+        assets = AGENT_ROOT / "assets" / "meter_calibration"
+        self.assertTrue((assets / "meter_geometry.json").is_file())
+        self.assertTrue((assets / "reference_faces" / "ammeter_face.jpg").is_file())
+        self.assertTrue((assets / "reference_faces" / "voltmeter_face.jpg").is_file())
+        self.assertTrue((assets / "terminal_templates" / "ammeter_terminal_annotation.json").is_file())
+        self.assertTrue((assets / "terminal_templates" / "voltmeter_terminal_annotation.json").is_file())
+        cpu_source = (AGENT_ROOT / "resistance_agent" / "skills" / "cpu_tick_meter_reading.py").read_text(encoding="utf-8")
+        self.assertNotIn("video_id ==", cpu_source)
+        self.assertNotIn("source_video_sha256", cpu_source)
+        self.assertIn("current_run_active_measurement_frames_only", cpu_source)
+
     def test_agent_release_publishes_r0_to_r6_and_r8_only(self) -> None:
         toolkit_source = (AGENT_ROOT / "resistance_agent" / "toolkit.py").read_text(encoding="utf-8")
         self.assertIn("PUBLISHED_RUBRIC_IDS", toolkit_source)

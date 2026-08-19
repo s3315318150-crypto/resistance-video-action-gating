@@ -11,6 +11,7 @@ from .executors import (
 from .router import LIVE_ROUTING_POLICY, select_live_skills
 from . import closed_stable_r6_cv_v3
 from . import closed_stable_stage_producer
+from . import cpu_tick_meter_reading
 from . import dynamic_meter_reading
 
 __all__ = [
@@ -25,4 +26,5 @@ __all__ = [
     "dynamic_meter_reading",
     "closed_stable_r6_cv_v3",
     "closed_stable_stage_producer",
+    "cpu_tick_meter_reading",
 ]

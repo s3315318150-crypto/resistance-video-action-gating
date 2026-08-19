@@ -1,0 +1,72 @@
+{
+  "schema_version": "resistance-agent-meter-geometry.v1",
+  "canonical_size": [640, 520],
+  "templates": [
+    {
+      "role": "ammeter",
+      "reference_frame": "reference_faces/ammeter_face.jpg",
+      "quad": [[0, 0], [639, 0], [639, 519], [0, 519]],
+      "geometry_calibration": {
+        "zero_angle_deg": 108.0,
+        "full_angle_deg": 43.0,
+        "sweep_direction": "decreasing",
+        "zero_tolerance_ratio": 0.03
+      },
+      "range_port_layout": {
+        "middle_port": {"range_max_value": 0.6, "unit": "A", "size": "small"},
+        "right_port": {"range_max_value": 3.0, "unit": "A", "size": "large"}
+      }
+    },
+    {
+      "role": "voltmeter",
+      "reference_frame": "reference_faces/voltmeter_face.jpg",
+      "quad": [[0, 0], [639, 0], [639, 519], [0, 519]],
+      "geometry_calibration": {
+        "zero_angle_deg": 110.153,
+        "full_angle_deg": 45.173,
+        "sweep_direction": "decreasing",
+        "zero_tolerance_ratio": 0.03,
+        "zero_uncertainty_deg": 1.72,
+        "full_uncertainty_deg": 1.5
+      },
+      "range_port_layout": {
+        "middle_port": {"range_max_value": 3.0, "unit": "V", "size": "small"},
+        "right_port": {"range_max_value": 15.0, "unit": "V", "size": "large"}
+      }
+    }
+  ],
+  "tracking": {
+    "image_scale": 0.5,
+    "ratio_test": 0.72,
+    "ransac_threshold_px": 7.0,
+    "min_good_matches": 12,
+    "min_inliers": 10,
+    "min_inlier_ratio": 0.3,
+    "min_quad_area_ratio": 0.005,
+    "max_quad_area_ratio": 0.15,
+    "max_edge_length_ratio": 3.0,
+    "min_light_ratio": 0.42,
+    "role_collision_iou": 0.3,
+    "collision_strength_ratio": 1.4
+  },
+  "scan": {
+    "angle_min_deg": 25.0,
+    "angle_max_deg": 155.0,
+    "angle_step_deg": 0.25,
+    "radial_start_px": 45.0,
+    "radial_end_fraction": 0.9,
+    "red_dilate_px": 7,
+    "min_score": 0.16,
+    "min_dark_fraction": 0.2,
+    "min_continuity": 0.15,
+    "min_peak_margin": 0.008,
+    "max_red_occlusion_fraction": 0.35,
+    "hough_pivot_distance_px": 24.0,
+    "hough_line_angle_tolerance_deg": 7.0,
+    "hough_min_line_fraction": 0.4,
+    "hough_min_far_radius_fraction": 0.48,
+    "hough_max_near_radius_fraction": 0.28,
+    "hough_cluster_tolerance_deg": 4.0,
+    "hough_refine_window_deg": 3.0
+  }
+}

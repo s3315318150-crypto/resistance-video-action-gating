@@ -1878,10 +1878,15 @@ def run_meter_rubrics(run_id: str, use_fallback_temporal_guard: bool = False) ->
             and closed_stable.get("enabled") is True
         ):
             stage_producer = closed_stable.get("stage_producer")
+            cpu_tick_enabled = (
+                isinstance(stage_producer, dict)
+                and isinstance(stage_producer.get("cpu_tick_grid"), dict)
+                and stage_producer["cpu_tick_grid"].get("enabled") is True
+            )
             if (
                 getattr(meter_module.run_meter_rubrics, "supports_closed_stable_stage_producer", False)
                 and isinstance(stage_producer, dict)
-                and stage_producer.get("enabled") is True
+                and (stage_producer.get("enabled") is True or cpu_tick_enabled)
             ):
                 producer_config = dict(stage_producer)
                 producer_root = Path(str(producer_config.get("producer_root") or ""))
@@ -1891,12 +1896,20 @@ def run_meter_rubrics(run_id: str, use_fallback_temporal_guard: bool = False) ->
                     else (PROJECT_ROOT / producer_root).resolve()
                 )
                 producer_config["producer_root"] = str(producer_root)
-                runtime_calibration = Path(str(producer_config.get("runtime_calibration") or ""))
-                producer_config["runtime_calibration"] = str(
-                    runtime_calibration.resolve()
-                    if runtime_calibration.is_absolute()
-                    else (producer_root / runtime_calibration).resolve()
-                )
+                for field in ("calibration", "terminal_annotations"):
+                    configured = Path(str(producer_config.get(field) or ""))
+                    producer_config[field] = str(
+                        configured.resolve()
+                        if configured.is_absolute()
+                        else (producer_root / configured).resolve()
+                    )
+                if producer_config.get("enabled") is True:
+                    runtime_calibration = Path(str(producer_config.get("runtime_calibration") or ""))
+                    producer_config["runtime_calibration"] = str(
+                        runtime_calibration.resolve()
+                        if runtime_calibration.is_absolute()
+                        else (producer_root / runtime_calibration).resolve()
+                    )
                 meter_arguments["closed_stable_stage_producer_config"] = producer_config
         evidence = meter_module.run_meter_rubrics(**meter_arguments)
     except (OSError, RuntimeError, ValueError, KeyError, json.JSONDecodeError) as exc:

@@ -26,16 +26,18 @@ try:
     from .skills import dynamic_meter_reading as DYNAMIC_METER
     from .skills import closed_stable_r6_cv_v3 as CLOSED_STABLE_R6
     from .skills import closed_stable_stage_producer as CLOSED_STABLE_PRODUCER
+    from .skills import cpu_tick_meter_reading as CPU_TICK_READER
 except ImportError:
     from skills import dynamic_meter_reading as DYNAMIC_METER  # type: ignore
     from skills import closed_stable_r6_cv_v3 as CLOSED_STABLE_R6  # type: ignore
     from skills import closed_stable_stage_producer as CLOSED_STABLE_PRODUCER  # type: ignore
+    from skills import cpu_tick_meter_reading as CPU_TICK_READER  # type: ignore
 
 
 AGENT_ROOT = Path(__file__).resolve().parent.parent
 PROJECT_ROOT = AGENT_ROOT.parent
 SCRIPTS_ROOT = AGENT_ROOT / "scripts"
-ALGORITHM_VERSION = "r56_temporal_meter_v5_live_closed_stable_cv_v3"
+ALGORITHM_VERSION = "r56_temporal_meter_v6_cpu_tick_grid"
 NEEDLE_STATES = {"normal_rightward", "zero", "reverse", "overrange", "uncertain"}
 ENERGIZED_STATES = {"energized", "deenergized", "unclear"}
 METER_IDENTITIES = {"ammeter", "voltmeter", "unknown"}
@@ -1304,6 +1306,56 @@ def run_meter_rubrics(
         candidate_crops_per_frame=int(parameters["candidate_crops_per_frame"]),
         execution_fingerprint=execution["execution_fingerprint"],
     )
+    producer_config = closed_stable_stage_producer_config or {}
+    cpu_tick_config = producer_config.get("cpu_tick_grid")
+    cpu_tick_evidence: dict[str, Any] = {
+        "status": "disabled",
+        "skill_version": CPU_TICK_READER.SKILL_VERSION,
+    }
+    if isinstance(cpu_tick_config, dict) and cpu_tick_config.get("enabled") is True:
+        active_groups = CPU_TICK_READER.active_image_groups(qwen, len(selected))
+        active_frames = [
+            {**frame, "image_group": group}
+            for group, frame in enumerate(selected, start=1)
+            if group in active_groups
+        ]
+        if not active_frames:
+            cpu_tick_evidence = {
+                "status": "no_active_measurement_frames",
+                "skill_version": CPU_TICK_READER.SKILL_VERSION,
+                "selection_basis": "current_run_active_measurement_frames_only",
+                "video_id_used_for_routing": False,
+                "historical_artifacts_used": False,
+                "fixed_video_roi_used": False,
+            }
+        else:
+            try:
+                producer_root = Path(str(producer_config["producer_root"])).resolve()
+                cpu_tick_evidence = CPU_TICK_READER.run_cpu_tick_reader(
+                    active_frames,
+                    baseline_root=producer_root,
+                    calibration=str(producer_config["calibration"]),
+                    terminal_annotations=str(producer_config["terminal_annotations"]),
+                    output_dir=evidence_dir / "cpu_tick_grid",
+                    max_frames=int(cpu_tick_config.get("max_frames", 6)),
+                    max_feature_width=int(
+                        cpu_tick_config.get(
+                            "max_feature_width",
+                            producer_config.get("max_feature_width", 2400),
+                        )
+                    ),
+                )
+            except (OSError, RuntimeError, ValueError, KeyError, ImportError, cv2.error) as exc:
+                cpu_tick_evidence = {
+                    "status": "failed_keep_current_binary_reducer",
+                    "skill_version": CPU_TICK_READER.SKILL_VERSION,
+                    "error": f"{type(exc).__name__}:{exc}",
+                    "selection_basis": "current_run_active_measurement_frames_only",
+                    "video_id_used_for_routing": False,
+                    "historical_artifacts_used": False,
+                    "fixed_video_roi_used": False,
+                }
+        write_json(evidence_dir / "cpu_tick_grid_evidence.json", cpu_tick_evidence)
     signed_pointer_evidence = None
     if signed_pointer_evidence_path is not None:
         signed_pointer_evidence = load_signed_pointer_evidence(
@@ -1324,7 +1376,6 @@ def run_meter_rubrics(
         closed_stable_runtime_calibration_path,
     ]
     stage_producer: dict[str, Any] | None = None
-    producer_config = closed_stable_stage_producer_config or {}
     if producer_config.get("enabled") is True:
         # Execute mode must either use this run's stage search or its Qwen
         # result. Configured batch evidence is reserved for explicit replay.
@@ -1380,6 +1431,8 @@ def run_meter_rubrics(
                 "status": "current_video_stage_evidence_missing",
                 "skill_version": CLOSED_STABLE_R6.SKILL_VERSION,
             }
+    if cpu_tick_evidence.get("status") == "completed":
+        r5, r6 = CPU_TICK_READER.fuse_binary_results(r5, r6, cpu_tick_evidence)
     report = {
         "schema_version": "resistance_agent_meter_evidence.v1",
         "algorithm_version": ALGORITHM_VERSION,
@@ -1398,6 +1451,7 @@ def run_meter_rubrics(
         "adaptive_evidence_used": bool(adaptive_selected),
         "dynamic_meter_identity": dynamic_identity,
         "qwen_observation": qwen,
+        "cpu_tick_grid_evidence": cpu_tick_evidence,
         "signed_pointer_evidence": signed_pointer_evidence,
         "closed_stable_cv_v3_applied": closed_stable_applied,
         "closed_stable_cv_v3_skill_version": CLOSED_STABLE_R6.SKILL_VERSION,
@@ -1423,3 +1477,4 @@ run_meter_rubrics.supports_boundary_summary = True
 run_meter_rubrics.supports_signed_pointer_evidence = True
 run_meter_rubrics.supports_closed_stable_cv_v3 = True
 run_meter_rubrics.supports_closed_stable_stage_producer = True
+run_meter_rubrics.supports_cpu_tick_grid = True
