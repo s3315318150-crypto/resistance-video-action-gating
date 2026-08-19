@@ -147,7 +147,8 @@ class RunResistancePipelineTests(unittest.TestCase):
         self.assertEqual("v3", report["action_version"])
         self.assertEqual("03_action_v3", action_phase["phase"])
         self.assertTrue(any("qwen_experiment_action_hierarchical_v3.py" in item for item in action_phase["command"]))
-        self.assertTrue(report["outputs"]["action_summary"].endswith("actions\\v3\\summary.json"))
+        action_summary = report["outputs"]["action_summary"].replace("\\", "/")
+        self.assertTrue(action_summary.endswith("actions/v3/summary.json"))
 
     def test_behavior_tolerant_variants_are_independent_opt_ins(self) -> None:
         variants = {

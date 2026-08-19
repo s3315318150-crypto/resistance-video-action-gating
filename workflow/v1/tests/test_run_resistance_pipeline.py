@@ -81,7 +81,8 @@ class RunResistancePipelineTests(unittest.TestCase):
         self.assertEqual("v3", report["action_version"])
         self.assertEqual("03_action_v3", action_phase["phase"])
         self.assertTrue(any("qwen_experiment_action_hierarchical_v3.py" in item for item in action_phase["command"]))
-        self.assertTrue(report["outputs"]["action_summary"].endswith("actions\\v3\\summary.json"))
+        action_summary = report["outputs"]["action_summary"].replace("\\", "/")
+        self.assertTrue(action_summary.endswith("actions/v3/summary.json"))
 
     def test_v2_temporal_guard_is_independent_and_reuses_v2_schema(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -111,7 +112,8 @@ class RunResistancePipelineTests(unittest.TestCase):
         )
         schema_index = action_phase["command"].index("--schema") + 1
         self.assertTrue(action_phase["command"][schema_index].endswith("resistance_7stage_no_battery_v2.json"))
-        self.assertTrue(report["outputs"]["action_summary"].endswith("actions\\v2-temporal-guard\\summary.json"))
+        action_summary = report["outputs"]["action_summary"].replace("\\", "/")
+        self.assertTrue(action_summary.endswith("actions/v2-temporal-guard/summary.json"))
 
 
 if __name__ == "__main__":
