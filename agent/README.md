@@ -9,7 +9,7 @@ Agent 版以 [Workflow V2](../workflow/v2/) 为工程基线，复用稳定视觉
 - 从原生视频帧动态定位仪表、端子、纸面、开关和电池区域，不按视频身份读取固定 ROI。
 - 遮挡、冲突或低置信度时，在当前阶段附近申请有限邻帧，再回到同一二分类 reducer。
 - 多个 Rubric 复用同一 run 的已生成证据，但不读取历史预测或 Excel 标签。
-- R5/R6 使用动态表头定位、导线遮挡屏蔽、相邻帧指针共识、印刷刻度读数和本地二分类融合；详见 [`R5/R6 AI Context`](./docs/algorithms/r5_r6_dense_meter_state/AI_CONTEXT.md) 与 [算法说明](./docs/algorithms/r5_r6_dense_meter_state/README.md)。
+- 每个 Rubric 都有独立的算法说明和入口索引，见 [`Agent Rubric 算法手册`](./docs/algorithms/README.md)；R5/R6 与其他 Rubric 使用同一导航层级。
 - 每项主结果固定为 `pass` 或 `fail`；可见性与置信度只进入诊断字段。
 
 ## 执行结构
