@@ -1,0 +1,12 @@
+{
+  "schema_version": "resistance-agent-terminal-template.v1",
+  "source_filename": "reference_frames/ammeter_terminal_panel.jpg",
+  "crop_origin_px": [0, 0],
+  "source_quad": [[139, 234.667], [555, 195.667], [571, 276.667], [144, 329.667]],
+  "role": "ammeter",
+  "ports": [
+    {"id": "common", "center": [191, 260.667], "radius_px": 28, "range_max_value": null, "unit": null},
+    {"id": "0.6A", "center": [361, 260.667], "radius_px": 28, "range_max_value": 0.6, "unit": "A"},
+    {"id": "3A", "center": [513, 238.667], "radius_px": 28, "range_max_value": 3.0, "unit": "A"}
+  ]
+}

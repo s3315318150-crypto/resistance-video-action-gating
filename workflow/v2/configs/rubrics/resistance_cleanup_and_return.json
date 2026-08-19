@@ -1,0 +1,33 @@
+{
+  "rubric_id": "resistance.cleanup_and_return",
+  "experiment": "伏安法测电阻",
+  "stage": 0,
+  "name": "拆除整理动作观察",
+  "scope": "只观察是否发生器材整理动作；不判定实验是否结束。",
+  "required_evidence": [
+    "organizing_action_visible"
+  ],
+  "not_required_evidence": [
+    "switch_visible_and_open_before_dismantling",
+    "dismantling_action_visible",
+    "same_event_temporal_order_verified",
+    "all_equipment_returned_to_original_or_designated_storage",
+    "no_experiment_continuation_after_cleanup",
+    "circuit_disconnected_after_dismantling",
+    "terminal_stable_end_state"
+  ],
+  "decision_policy": {
+    "yes": "候选序列中至少一次直接看到拿起移开器材、收拢或盘绕导线、把器材移成更集中有序的排列、分组摆放或清理中央操作区等明确整理动作；器材和导线仍连接也可以成立，不要求确认开关或拆除动作，不要求整理完成或形成最终收纳状态。",
+    "no": "候选序列可判读但未见整理动作；或者完全没有 material_cleanup 候选时，末段扫描结构完整，按唯一时间桶统计的可判读比例不低于 80%，且未见整理动作。末段结果必须带 decision_basis=terminal_scan_no_organizing。",
+    "uncertain": "只有整理动作相关区域在候选序列中确实无法判读，或末段扫描漏桶、解码失败、跨包连续性不成立、可判读唯一时间桶比例低于 80% 时成立；局部或短暂遮挡不单独触发 uncertain。"
+  },
+  "output": {
+    "field": "cleanup_observed",
+    "allowed_values": [
+      "yes",
+      "no",
+      "uncertain"
+    ],
+    "meaning": "整理动作观察结果，不表示实验结束，也不表示开关和拆除程序合规。评分层可将 cleanup_observed=no（包括 terminal_scan_no_organizing）映射为该评价项 fail；uncertain 不应自动判 fail。"
+  }
+}

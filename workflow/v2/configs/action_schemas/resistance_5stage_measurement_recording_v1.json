@@ -1,0 +1,81 @@
+{
+  "schema_version": "resistance_action_schema.v1",
+  "stage_schema_id": "resistance_5stage_measurement_recording_v1",
+  "experiment": "伏安法测电阻",
+  "description": "五阶段版本：把测量和记录合并为每一轮的测量记录区间。单独的 measurement_action 和 writing_action 仍保留在事件及阶段证据字段中。",
+  "merge_policy": {
+    "merged_stage_ids": ["recording_1", "recording_2"],
+    "merged_action_types": ["measurement_action", "writing_action"],
+    "label_zh": "测量记录",
+    "preserve_subactions": true,
+    "stage_window_policy": "one_cycle_window_with_observed_subintervals"
+  },
+  "base_actions": [
+    {
+      "id": "wiring_action",
+      "label_zh": "接线动作",
+      "definition": "摆放实验器材，插接、拔出或调整导线，连接电表、开关、待测电阻等线路。"
+    },
+    {
+      "id": "measurement_action",
+      "label_zh": "测量动作",
+      "definition": "线路准备后操作开关、保持电路接通、观察电表或读取示数。"
+    },
+    {
+      "id": "writing_action",
+      "label_zh": "书写动作",
+      "definition": "笔尖接触记录纸并呈现填写、书写或计算动作。"
+    },
+    {
+      "id": "cleanup_action",
+      "label_zh": "最终整理动作",
+      "definition": "连续拆卸线路、收拢导线或归位器材，形成实验结束终态。"
+    },
+    {
+      "id": "uncertain",
+      "label_zh": "无法判断",
+      "definition": "只作为诊断事件，不是最终评分类别。"
+    }
+  ],
+  "stages": [
+    {
+      "id": "circuit_wiring",
+      "order": 1,
+      "label_zh": "连线",
+      "required_base_action": "wiring_action"
+    },
+    {
+      "id": "recording_1",
+      "order": 2,
+      "label_zh": "第一次测量记录",
+      "accepted_base_actions": ["measurement_action", "writing_action"],
+      "merged_action_types": ["measurement_action", "writing_action"]
+    },
+    {
+      "id": "circuit_rewiring",
+      "order": 3,
+      "label_zh": "重新连线",
+      "required_base_action": "wiring_action"
+    },
+    {
+      "id": "recording_2",
+      "order": 4,
+      "label_zh": "第二次测量记录",
+      "accepted_base_actions": ["measurement_action", "writing_action"],
+      "merged_action_types": ["measurement_action", "writing_action"]
+    },
+    {
+      "id": "material_cleanup",
+      "order": 5,
+      "label_zh": "整理材料",
+      "required_base_action": "cleanup_action",
+      "absorbing_terminal": true
+    }
+  ],
+  "state_machine_rules": [
+    "阶段只能保持或向前推进，不能按预期实验流程补造缺失阶段。",
+    "measurement_action 和 writing_action 在同一轮中统一归入 recording_1 或 recording_2，具体子动作通过证据字段保留。",
+    "第二轮测量记录必须位于重新连线的直接可见证据之后。",
+    "首个被接受的 cleanup_action 是不可逆终态，其后的动作只进入 ignored_noise_events。"
+  ]
+}

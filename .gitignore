@@ -1,6 +1,10 @@
 # Private datasets and derived media
 data/
 outputs/
+runs/
+evaluations/
+verification/
+deliveries/
 *.mp4
 *.mov
 *.avi

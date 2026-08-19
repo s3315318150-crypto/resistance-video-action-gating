@@ -1,0 +1,263 @@
+{
+  "contract_id": "evidence_artifact_contract_v1",
+  "contract_version": "v1",
+  "scope": "Deterministic validation of local JSON evidence artifacts. It does not open videos, images, or spreadsheets; call models; or calculate student scores.",
+  "compatibility_policy": {
+    "historical_artifacts": "Existing artifacts without schema_version or artifact_type are accepted through explicit legacy adapters and reported with warnings.",
+    "unknown_fields": "Allowed and ignored unless they conflict with a named invariant.",
+    "input_mutation": "Forbidden"
+  },
+  "common_enums": {
+    "roi_status": [
+      "full",
+      "partial",
+      "not_visible"
+    ],
+    "decision": [
+      "pass",
+      "fail",
+      "abstained"
+    ],
+    "automated_outcome": [
+      "scored",
+      "abstained"
+    ],
+    "switch_state": [
+      "open",
+      "closed",
+      "uncertain"
+    ],
+    "needle_state_v2": [
+      "normal_rightward",
+      "zero",
+      "reverse",
+      "overrange",
+      "uncertain"
+    ],
+    "needle_direction_legacy": [
+      "right",
+      "rightward",
+      "positive",
+      "positive_rightward",
+      "zero",
+      "reverse",
+      "uncertain"
+    ]
+  },
+  "path_policy": {
+    "check_local_json_and_image_references": true,
+    "do_not_dereference": [
+      "source_video",
+      "workbook_path"
+    ],
+    "reason": "The validator is intentionally independent of video and Excel access."
+  },
+  "artifact_types": {
+    "frame_manifest": {
+      "required_fields": [
+        "source_video",
+        "frames"
+      ],
+      "field_constraints": {
+        "frames": {
+          "kind": "array",
+          "item_required_any": [
+            "output_path",
+            "frame_path"
+          ],
+          "item_required": [
+            "timestamp_seconds"
+          ]
+        }
+      }
+    },
+    "evidence_availability_review": {
+      "required_fields": [
+        "rubric_id",
+        "source_video",
+        "candidate_reviews",
+        "review_method"
+      ],
+      "field_constraints": {
+        "candidate_reviews": {
+          "kind": "array",
+          "item_required": [
+            "timestamp_seconds",
+            "frame_path",
+            "usable_for_qwen_evidence"
+          ],
+          "visibility_fields": [
+            "switch_visibility",
+            "voltmeter_visibility",
+            "ammeter_visibility"
+          ],
+          "visibility_enum": "roi_status"
+        }
+      }
+    },
+    "dynamic_roi_results": {
+      "required_fields": [
+        "frames"
+      ],
+      "field_constraints": {
+        "frame_layout": "frame.devices.{voltmeter,ammeter,switch}; legacy direct device fields are accepted with a warning",
+        "device_status_enum": "roi_status",
+        "full_or_partial_required": [
+          "mapped_bbox | bbox | bbox.mapped_bbox_xyxy",
+          "inlier_count",
+          "area_ratio_to_reference",
+          "visible_area_ratio"
+        ],
+        "not_visible_forbidden_non_null_fields": [
+          "original_crop",
+          "enhanced_crop"
+        ],
+        "switch_state_assessment_allowed": {
+          "allowed_types": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "qwen_structured_result": {
+      "required_one_of": [
+        [
+          "evaluations"
+        ],
+        [
+          "json_parsed",
+          "safety_valid"
+        ]
+      ],
+      "field_constraints": {
+        "json_parsed_true_requires": "structured_result_or_result_object",
+        "safety_valid_true_requires": "validation_errors_empty_array",
+        "not_visible_roi_requires": "assessment.status=not_assessable",
+        "forbidden_fields_anywhere_in_structured_result": [
+          "score",
+          "predicted_score",
+          "automated_decision",
+          "predicted_decision",
+          "final_decision",
+          "final_rubric_decision",
+          "rubric_decision"
+        ]
+      }
+    },
+    "evidence_package": {
+      "required_fields": [
+        "rubric_id",
+        "source_video",
+        "automated_decision",
+        "automated_outcome",
+        "abstention_reason",
+        "predicted_score"
+      ],
+      "decision_score_fields": [
+        "score",
+        "predicted_score"
+      ],
+      "derived_meter_evidence_rule": "Applies only when circuit_closed_evidence.method is derived_meter_evidence."
+    },
+    "prediction_package": {
+      "required_fields": [
+        "rubric_id",
+        "source_video",
+        "circuit_closed_evidence",
+        "automated_decision",
+        "automated_outcome",
+        "abstention_reason",
+        "predicted_score",
+        "provenance"
+      ],
+      "derived_meter_evidence_rule": "Applies only when circuit_closed_evidence.method is derived_meter_evidence."
+    },
+    "offline_evaluation": {
+      "required_fields": [
+        "source_video",
+        "rubric_id",
+        "prediction_package_path",
+        "prediction_package_sha256",
+        "predicted_decision",
+        "predicted_score",
+        "evaluation_status",
+        "prediction_frozen_before_ground_truth_access",
+        "ground_truth_shared_with_model"
+      ],
+      "field_constraints": {
+        "prediction_package_sha256": "64 hexadecimal characters",
+        "prediction_frozen_before_ground_truth_access": true,
+        "ground_truth_shared_with_model": false,
+        "evaluation_status": [
+          "matched",
+          "mismatched",
+          "ground_truth_not_found"
+        ]
+      }
+    },
+    "validation_gate": {
+      "required_fields": [
+        "rubric_id",
+        "status",
+        "frozen_artifacts",
+        "required_new_data",
+        "prohibited_actions"
+      ],
+      "conditional_constraints": {
+        "when_status_is_blocked_waiting_for_data": {
+          "required_non_empty_fields": [
+            "frozen_artifacts",
+            "required_new_data",
+            "prohibited_actions"
+          ]
+        }
+      }
+    }
+  },
+  "derived_meter_evidence_invariants": {
+    "required": [
+      "same original source frame for both meters",
+      "voltmeter ROI full",
+      "ammeter ROI full",
+      "both assessments assessable",
+      "both needle_deflected true",
+      "both needle directions right or rightward",
+      "local safety validation passed",
+      "non-empty scope_note"
+    ],
+    "direct_switch_boundary": "A switch marked not_assessable must not be used as direct_switch_evidence.",
+    "scope_boundary": "Derived meter evidence must not be generalized to a rubric that requires direct mechanical switch observation."
+  },
+  "decision_invariants": {
+    "automated_outcome_values": [
+      "scored",
+      "abstained"
+    ],
+    "scored": {
+      "predicted_score": [
+        0,
+        1
+      ],
+      "abstention_reason": null
+    },
+    "abstained": {
+      "predicted_score": null,
+      "abstention_reason": "non-empty string",
+      "meaning": "Evidence is insufficient; the system emits no score and does not enter a human workflow."
+    },
+    "abstention_mapping": "Evidence is insufficient; automated_outcome=abstained, predicted_score=null, and abstention_reason is required."
+  },
+  "project_metrics": {
+    "automatic_scoring_coverage": "scored_sample_count / total_sample_count",
+    "abstention_rate": "abstained_sample_count / total_sample_count",
+    "accuracy_on_scored_samples": "matched_scored_sample_count / labeled_scored_sample_count, or null when no labeled scored samples are available"
+  },
+  "holdout_boundary": {
+    "rule": "Holdout ground truth is used only after a prediction package is frozen for offline evaluation.",
+    "forbidden": [
+      "tuning_on_holdout",
+      "sharing_ground_truth_with_visual_model"
+    ]
+  }
+}

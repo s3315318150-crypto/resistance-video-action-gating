@@ -1,0 +1,145 @@
+{
+  "schema_version": "rubric_retrieval_profiles.v1",
+  "uniform_baseline_interval_seconds": 2.0,
+  "profiles": [
+    {
+      "rubric_id": 0,
+      "key": "cleanup_and_return",
+      "observation_question": "Describe the visible before, during, and after states of dismantling and returning the orange-red instruments to the upper-left storage area.",
+      "anchor_stages": ["material_cleanup"],
+      "anchor_padding_seconds": [3.0, 2.0],
+      "anchor_interval_seconds": 1.0,
+      "budget_frames": 24,
+      "roi_targets": ["full_table", "upper_left_storage", "wires_and_instruments"],
+      "fallbacks": [
+        {"type": "experiment_tail", "mode": "when_no_anchor", "duration_seconds": 30.0, "interval_seconds": 2.0}
+      ]
+    },
+    {
+      "rubric_id": 1,
+      "key": "series_circuit",
+      "observation_question": "Trace the ammeter leads and determine whether the ammeter belongs to the main series path rather than directly bridging the source.",
+      "anchor_stages": ["circuit_wiring", "circuit_rewiring"],
+      "anchor_padding_seconds": [1.0, 1.0],
+      "anchor_interval_seconds": 2.0,
+      "budget_frames": 36,
+      "roi_targets": ["full_circuit", "ammeter_terminals", "source_terminals", "wire_endpoints"],
+      "fallbacks": [
+        {"type": "after_stage", "mode": "supplementary", "stages": ["circuit_wiring", "circuit_rewiring"], "before_end_seconds": 2.0, "after_end_seconds": 5.0, "interval_seconds": 1.0},
+        {"type": "experiment_sparse", "mode": "when_no_anchor", "interval_seconds": 12.0}
+      ]
+    },
+    {
+      "rubric_id": 2,
+      "key": "voltmeter_parallel",
+      "observation_question": "Trace both voltmeter leads and identify whether they terminate at the two endpoints of the resistor under test.",
+      "anchor_stages": ["circuit_wiring", "circuit_rewiring", "recording_1", "recording_2"],
+      "anchor_padding_seconds": [1.0, 1.0],
+      "anchor_interval_seconds": 2.0,
+      "budget_frames": 36,
+      "roi_targets": ["full_circuit", "voltmeter_terminals", "resistor_endpoints", "wire_endpoints"],
+      "fallbacks": [
+        {"type": "after_stage", "mode": "supplementary", "stages": ["circuit_wiring", "circuit_rewiring"], "before_end_seconds": 2.0, "after_end_seconds": 5.0, "interval_seconds": 1.0},
+        {"type": "experiment_sparse", "mode": "when_no_anchor", "interval_seconds": 12.0}
+      ]
+    },
+    {
+      "rubric_id": 3,
+      "key": "switch_open_during_wiring",
+      "observation_question": "Observe the mechanical switch immediately before, during, and after each visible wiring contact change.",
+      "anchor_stages": ["circuit_wiring", "circuit_rewiring"],
+      "anchor_padding_seconds": [2.0, 2.0],
+      "anchor_interval_seconds": 1.0,
+      "budget_frames": 40,
+      "roi_targets": ["full_circuit", "switch", "active_hand_contact"],
+      "fallbacks": [
+        {"type": "experiment_sparse", "mode": "when_no_anchor", "interval_seconds": 10.0}
+      ]
+    },
+    {
+      "rubric_id": 4,
+      "key": "meter_polarity",
+      "observation_question": "Observe meter terminal signs, connected wire endpoints, and pointer direction as separate visual facts for both meters.",
+      "anchor_stages": ["measurement_1", "measurement_2", "recording_1", "recording_2"],
+      "anchor_padding_seconds": [2.0, 1.0],
+      "anchor_interval_seconds": 1.0,
+      "budget_frames": 32,
+      "roi_targets": ["ammeter_terminals", "voltmeter_terminals", "ammeter_dial", "voltmeter_dial"],
+      "fallbacks": [
+        {"type": "before_stage", "mode": "when_no_measurement_anchor", "stages": ["recording_1", "recording_2"], "lookback_seconds": 15.0, "include_after_seconds": 1.0, "interval_seconds": 1.0},
+        {"type": "experiment_sparse", "mode": "when_no_anchor", "interval_seconds": 12.0}
+      ]
+    },
+    {
+      "rubric_id": 5,
+      "key": "pointer_normal_deflection",
+      "observation_question": "Track both analog pointers across adjacent frames and report direction, stability, saturation, and readable deflection without assuming a value from circuit theory.",
+      "anchor_stages": ["measurement_1", "measurement_2"],
+      "anchor_padding_seconds": [2.0, 2.0],
+      "anchor_interval_seconds": 0.5,
+      "budget_frames": 36,
+      "roi_targets": ["ammeter_dial", "voltmeter_dial", "full_table_context"],
+      "fallbacks": [
+        {"type": "before_stage", "mode": "when_no_anchor", "stages": ["recording_1", "recording_2"], "lookback_seconds": 15.0, "include_after_seconds": 0.0, "interval_seconds": 0.5},
+        {"type": "experiment_sparse", "mode": "when_no_anchor_and_no_stage_fallback", "interval_seconds": 10.0}
+      ]
+    },
+    {
+      "rubric_id": 6,
+      "key": "meter_range_appropriate",
+      "observation_question": "Observe connected range terminals or selectors, visible scale markings, and pointer position as separate facts for each meter.",
+      "anchor_stages": ["measurement_1", "measurement_2"],
+      "anchor_padding_seconds": [2.0, 2.0],
+      "anchor_interval_seconds": 1.0,
+      "budget_frames": 32,
+      "roi_targets": ["ammeter_terminals_and_scale", "voltmeter_terminals_and_scale", "full_table_context"],
+      "fallbacks": [
+        {"type": "before_stage", "mode": "when_no_anchor", "stages": ["recording_1", "recording_2"], "lookback_seconds": 15.0, "include_after_seconds": 0.0, "interval_seconds": 1.0},
+        {"type": "after_stage", "mode": "supplementary", "stages": ["circuit_wiring", "circuit_rewiring"], "before_end_seconds": 2.0, "after_end_seconds": 4.0, "interval_seconds": 1.0}
+      ]
+    },
+    {
+      "rubric_id": 7,
+      "key": "record_first_measurement",
+      "observation_question": "Read the first written U/I row and independently retrieve the latest stable dual-meter state immediately before first writing.",
+      "anchor_stages": ["recording_1"],
+      "anchor_padding_seconds": [1.0, 2.0],
+      "anchor_interval_seconds": 1.0,
+      "budget_frames": 32,
+      "roi_targets": ["paper_first_row", "ammeter_dial", "voltmeter_dial", "full_table_context"],
+      "fallbacks": [
+        {"type": "before_stage", "mode": "supplementary", "stages": ["recording_1"], "lookback_seconds": 15.0, "include_after_seconds": 0.0, "interval_seconds": 0.5},
+        {"type": "experiment_sparse", "mode": "when_no_anchor", "interval_seconds": 10.0}
+      ]
+    },
+    {
+      "rubric_id": 8,
+      "key": "disconnect_before_battery_change",
+      "observation_question": "Within one rewiring episode, observe switch state before contact change, battery-terminal configuration during change, and switch state after the new stable configuration.",
+      "anchor_stages": ["circuit_rewiring"],
+      "anchor_padding_seconds": [5.0, 5.0],
+      "anchor_interval_seconds": 0.5,
+      "budget_frames": 40,
+      "roi_targets": ["switch", "battery_box_terminals", "active_hand_contact", "full_circuit"],
+      "fallbacks": [
+        {"type": "between_stage_groups", "mode": "when_no_anchor", "left_stages": ["recording_1", "measurement_1"], "right_stages": ["recording_2", "measurement_2"], "padding_seconds": 5.0, "interval_seconds": 0.5},
+        {"type": "experiment_sparse", "mode": "when_no_anchor_and_no_stage_fallback", "interval_seconds": 10.0}
+      ]
+    },
+    {
+      "rubric_id": 9,
+      "key": "record_second_measurement",
+      "observation_question": "Read the second written U/I row and independently retrieve the latest stable dual-meter state after second-cycle rewiring and before second writing.",
+      "anchor_stages": ["recording_2"],
+      "anchor_padding_seconds": [1.0, 2.0],
+      "anchor_interval_seconds": 1.0,
+      "budget_frames": 36,
+      "roi_targets": ["paper_second_row", "ammeter_dial", "voltmeter_dial", "battery_box_terminals", "full_table_context"],
+      "fallbacks": [
+        {"type": "before_stage", "mode": "supplementary", "stages": ["recording_2"], "lookback_seconds": 18.0, "include_after_seconds": 0.0, "interval_seconds": 0.5},
+        {"type": "after_stage", "mode": "when_no_anchor", "stages": ["circuit_rewiring"], "before_end_seconds": 1.0, "after_end_seconds": 18.0, "interval_seconds": 1.0},
+        {"type": "experiment_sparse", "mode": "when_no_anchor_and_no_stage_fallback", "interval_seconds": 10.0}
+      ]
+    }
+  ]
+}

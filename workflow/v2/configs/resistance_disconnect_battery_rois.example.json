@@ -1,0 +1,12 @@
+{
+  "schema_version": "resistance_disconnect_battery_rois.v1",
+  "coordinate_system": "normalized_xyxy",
+  "samples": [
+    {
+      "video_id": "sample_001.mp4",
+      "model_rois": {
+        "source_terminal_detail": [0.18, 0.55, 0.72, 0.96]
+      }
+    }
+  ]
+}

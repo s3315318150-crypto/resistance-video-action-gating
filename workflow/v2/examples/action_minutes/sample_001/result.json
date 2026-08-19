@@ -1,0 +1,24 @@
+{
+  "schema_version": "qwen_experiment_action_minute.v1",
+  "source_video_id": "sample_001.mp4",
+  "fixed_experiment_window_seconds": [10.0, 70.0],
+  "status": "completed",
+  "minute_results": [
+    {
+      "minute_index": 0,
+      "valid": true,
+      "input_frames": [
+        {"image_id": "m00_001", "timestamp_seconds": 10.0},
+        {"image_id": "m00_002", "timestamp_seconds": 30.0},
+        {"image_id": "m00_003", "timestamp_seconds": 50.0}
+      ],
+      "observations": [
+        {"stage": "circuit_wiring", "evidence_frame_id": "m00_001", "evidence": "可见连接导线"},
+        {"stage": "measurement_1", "evidence_frame_id": "m00_002", "evidence": "可见观察仪表"},
+        {"stage": "recording_1", "evidence_frame_id": "m00_003", "evidence": "可见持续书写"}
+      ]
+    }
+  ],
+  "evidence_insufficient": false,
+  "evidence_status": "usable"
+}

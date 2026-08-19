@@ -1,0 +1,85 @@
+{
+  "schema_version": "resistance_action_schema.v1",
+  "stage_schema_id": "resistance_7stage_no_battery_v1",
+  "experiment": "伏安法测电阻",
+  "description": "不设置换电池阶段。模型只识别可见基础动作，第一次和第二次由本地单调状态机编号。",
+  "base_actions": [
+    {
+      "id": "wiring_action",
+      "label_zh": "接线动作",
+      "definition": "摆放实验器材，插接、拔出或调整导线，连接电表、开关、待测电阻等线路。"
+    },
+    {
+      "id": "measurement_action",
+      "label_zh": "测量动作",
+      "definition": "线路准备后操作开关、保持电路接通、观察电表或明确读取示数；不包含书写。"
+    },
+    {
+      "id": "writing_action",
+      "label_zh": "书写动作",
+      "definition": "在记录纸上持续书写、填写表格或进行书面计算；只拿笔或手停在纸上不算。"
+    },
+    {
+      "id": "cleanup_action",
+      "label_zh": "整理动作",
+      "definition": "拆卸线路、收拢导线和器材或把器材归位；是否为最终整理由全局 Reduce 判断。"
+    },
+    {
+      "id": "uncertain",
+      "label_zh": "无法判断",
+      "definition": "因遮挡、抽帧缺失或动作证据不足，无法可靠归入其他基础动作。"
+    }
+  ],
+  "stages": [
+    {
+      "id": "circuit_wiring",
+      "order": 1,
+      "label_zh": "连线",
+      "required_base_action": "wiring_action"
+    },
+    {
+      "id": "measurement_1",
+      "order": 2,
+      "label_zh": "第一次测量",
+      "required_base_action": "measurement_action"
+    },
+    {
+      "id": "recording_1",
+      "order": 3,
+      "label_zh": "第一次记录",
+      "required_base_action": "writing_action"
+    },
+    {
+      "id": "circuit_rewiring",
+      "order": 4,
+      "label_zh": "重新连线",
+      "required_base_action": "wiring_action"
+    },
+    {
+      "id": "measurement_2",
+      "order": 5,
+      "label_zh": "第二次测量",
+      "required_base_action": "measurement_action"
+    },
+    {
+      "id": "recording_2",
+      "order": 6,
+      "label_zh": "第二次记录",
+      "required_base_action": "writing_action"
+    },
+    {
+      "id": "material_cleanup",
+      "order": 7,
+      "label_zh": "整理材料",
+      "required_base_action": "cleanup_action",
+      "absorbing_terminal": true
+    }
+  ],
+  "state_machine_rules": [
+    "阶段只能保持或向前推进，不能按预期流程补造缺失阶段。",
+    "第二次测量必须位于重新连线的直接可见证据之后。",
+    "第二次记录必须位于重新连线或第二次测量的直接可见证据之后；第二次测量可因抽帧缺失而保持 missing。",
+    "只有全局 Reduce 确认的最终整理才进入 material_cleanup。",
+    "进入 material_cleanup 后丢弃其后的实验动作。"
+  ]
+}
