@@ -138,14 +138,19 @@ class PublicReleaseContractTests(unittest.TestCase):
 
     def test_live_modules_have_no_development_video_defaults_or_fixed_rois(self) -> None:
         module_root = AGENT_ROOT / "resistance_agent"
-        for name in ("meter_rubrics.py", "switch_rubric.py"):
+        for name in ("meter_rubrics.py", "switch_rubric.py", "record_rubrics.py"):
             source = (module_root / name).read_text(encoding="utf-8")
             self.assertNotIn("all_five", source)
             self.assertNotIn("DEFAULT_ACTION_SUMMARY", source)
             self.assertNotIn("fallback_action_summary_path or", source)
 
-        toolkit_source = (module_root / "toolkit.py").read_text(encoding="utf-8")
-        self.assertNotIn('"run_record_rubrics"', toolkit_source)
+        record_source = (module_root / "record_rubrics.py").read_text(encoding="utf-8")
+        self.assertNotIn('video_id ==', record_source)
+        self.assertNotIn('"8":', record_source)
+        self.assertNotIn("replay_result\", \"result_path", record_source)
+        self.assertNotIn("source_video_sha256", record_source)
+        self.assertNotIn("METER_ROIS", record_source)
+        self.assertNotIn("PAPER_ROIS", record_source)
 
     def test_r5_r6_public_cpu_assets_are_repository_local(self) -> None:
         assets = AGENT_ROOT / "assets" / "meter_calibration"
@@ -159,12 +164,30 @@ class PublicReleaseContractTests(unittest.TestCase):
         self.assertNotIn("source_video_sha256", cpu_source)
         self.assertIn("current_run_active_measurement_frames_only", cpu_source)
 
-    def test_agent_release_publishes_r0_to_r6_and_r8_only(self) -> None:
+    def test_agent_release_publishes_all_ten_rubrics(self) -> None:
         toolkit_source = (AGENT_ROOT / "resistance_agent" / "toolkit.py").read_text(encoding="utf-8")
         self.assertIn("PUBLISHED_RUBRIC_IDS", toolkit_source)
-        self.assertNotIn('"run_record_rubrics"', toolkit_source)
-        self.assertNotIn('"record.two_cycle_consistency"', toolkit_source)
-        self.assertFalse((AGENT_ROOT / "resistance_agent" / "record_rubrics.py").exists())
+        self.assertIn('"run_record_rubrics"', toolkit_source)
+        self.assertTrue((AGENT_ROOT / "resistance_agent" / "record_rubrics.py").exists())
+
+    def test_record_skills_use_situation_and_current_run_gate(self) -> None:
+        stage_runs = [
+            {"stage": "measurement_1", "start_seconds": 2.0, "end_seconds": 8.0},
+            {"stage": "recording_1", "start_seconds": 9.0, "end_seconds": 12.0},
+        ]
+        with tempfile.TemporaryDirectory(dir=AGENT_ROOT) as temporary:
+            root = Path(temporary)
+            summary = root / "summary.json"
+            summary.write_text(json.dumps({"source_observed_stage_runs": stage_runs}), encoding="utf-8")
+            plan = select_live_skills(
+                source_video_id="new-video.mp4",
+                boundary_summary_path=summary,
+                action_summary_path=None,
+                allowed_root=root,
+            )
+        record = next(item for item in plan["selected_skills"] if item["rubric_ids"] == [7, 9])
+        self.assertEqual("record.cycle_bound_dynamic_roi", record["skill_id"])
+        self.assertEqual("same_cycle_record_match_and_r4_r5_r6_gate", record["parameters"]["fusion_policy"])
 
 
 if __name__ == "__main__":

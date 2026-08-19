@@ -43,7 +43,7 @@ except ImportError:
 
 SYSTEM_PROMPT = """你是伏安法测电阻视频流水线的调度 Agent。
 你只选择注册过的 MCP 工具，不直接看像素、不虚构工件、不执行任意命令。
-当前 Agent 发布集为 R0-R6、R8；R7/R9 暂不发布。
+当前 Agent 发布集为 R0-R9；R7/R9 使用同轮记录取证和 R4/R5/R6 前置门控。
 replay 模式：inspect_video -> create_run -> load_rubric_bundle(rubric_ids=[0,1,2,3,4,5,6,8]) ->
 validate_run -> finalize_run。
 prepare 模式：inspect_video -> create_run -> run_full_pipeline(dry_run=true) ->
@@ -184,7 +184,7 @@ def _pin_openai_arguments(
     elif name == "refine_rubric_boundaries":
         pinned["execute"] = mode == "execute"
     elif name == "load_rubric_bundle":
-        pinned["rubric_ids"] = [0, 1, 2, 3, 4, 5, 6, 8]
+        pinned["rubric_ids"] = list(range(10))
     return pinned
 
 
@@ -226,7 +226,7 @@ def run_deterministic(
         {"run_id": run_id, "video_ref": video_ref, "mode": mode, "config_path": str(config_path)},
     )
     if mode == "replay":
-        invoke("load_rubric_bundle", {"run_id": run_id, "rubric_ids": [0, 1, 2, 3, 4, 5, 6, 8]})
+        invoke("load_rubric_bundle", {"run_id": run_id, "rubric_ids": list(range(10))})
         invoke("validate_run", {"run_id": run_id})
         final = invoke("finalize_run", {"run_id": run_id})
         return {"scheduler": "deterministic", "transcript": transcript, "final": final}
@@ -242,7 +242,7 @@ def run_deterministic(
         else None
     )
     rubric_bundle = (
-        invoke("run_rubric_bundle", {"run_id": run_id, "rubric_ids": [0, 1, 2, 3, 4, 5, 6, 8]})
+        invoke("run_rubric_bundle", {"run_id": run_id, "rubric_ids": list(range(10))})
         if mode == "execute"
         else None
     )

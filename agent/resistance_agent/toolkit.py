@@ -23,7 +23,7 @@ ROOT = PROJECT_ROOT
 DEFAULT_CONFIG = AGENT_ROOT / "config.json"
 VIDEO_SUFFIXES = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 DECISIONS = {"pass", "fail"}
-PUBLISHED_RUBRIC_IDS: tuple[int, ...] = (0, 1, 2, 3, 4, 5, 6, 8)
+PUBLISHED_RUBRIC_IDS: tuple[int, ...] = tuple(range(10))
 LIVE_ROUTING_POLICY = "live_situation_skills.v1"
 FIVE_STAGE_ALGORITHM_ID = "qwen_experiment_action_hierarchical_v2_five_stage"
 FIVE_STAGE_SCHEMA_ID = "resistance_5stage_measurement_recording_v1"
@@ -1843,12 +1843,12 @@ def run_meter_rubrics(run_id: str, use_fallback_temporal_guard: bool = False) ->
 
     action_path: Path | None = None
     if isinstance(state.get("action_summary"), str) and state["action_summary"]:
-        candidate = resolve_inside(state["action_summary"], AGENT_ROOT, must_exist=False)
+        candidate = resolve_inside(state["action_summary"], run_dir, must_exist=False)
         if candidate.is_file():
             action_path = candidate
     boundary_path: Path | None = None
     if isinstance(state.get("boundary_summary"), str) and state["boundary_summary"]:
-        candidate = resolve_inside(state["boundary_summary"], AGENT_ROOT, must_exist=False)
+        candidate = resolve_inside(state["boundary_summary"], run_dir, must_exist=False)
         if candidate.is_file():
             boundary_path = candidate
     settings = config["workflow"].get("meter_rubrics", {})
@@ -1980,6 +1980,137 @@ def run_meter_rubrics(run_id: str, use_fallback_temporal_guard: bool = False) ->
         "evidence_report": evidence.get("report_path"),
         **adaptive,
         **_skill_metadata(skill_plan, (5, 6)),
+        "source_video_unchanged": True,
+    }
+
+
+def run_record_rubrics(run_id: str, use_fallback_temporal_guard: bool = False) -> dict[str, Any]:
+    """Acquire cycle-bound R7/R9 evidence and apply current-run R4/R5/R6 gates."""
+    run_dir, state = _state(run_id)
+    if state.get("mode") != "execute":
+        raise ToolError("record rubrics are only valid in execute mode")
+    _reject_historical_live_fallback(use_fallback_temporal_guard)
+    skill_plan = _live_skill_plan(run_dir, state)
+    existing_paths = state.get("rubric_results", {})
+    missing_prerequisites = [item for item in (4, 5, 6) if str(item) not in existing_paths]
+    if missing_prerequisites:
+        raise ToolError(
+            "R7/R9 require current-run R4/R5/R6 results; missing: "
+            + ",".join(str(item) for item in missing_prerequisites)
+        )
+
+    existing_ready = all(str(item) in existing_paths for item in (7, 9))
+    if existing_ready:
+        existing: dict[str, Any] = {}
+        for rubric_id in (7, 9):
+            result_path = resolve_inside(existing_paths[str(rubric_id)], AGENT_ROOT)
+            item = read_json(result_path)
+            gate = (item.get("diagnostics") or {}).get("meter_prerequisite_gate")
+            expected_score = 1 if item.get("decision") == "pass" else 0
+            if (
+                item.get("schema_version") != "resistance_agent_rubric_result.v2"
+                or item.get("rubric_id") != rubric_id
+                or item.get("decision") not in DECISIONS
+                or item.get("predicted_score") != expected_score
+                or item.get("routing_policy") != LIVE_ROUTING_POLICY
+                or not isinstance(gate, dict)
+                or gate.get("missing_rubrics")
+            ):
+                existing_ready = False
+                break
+            existing[str(rubric_id)] = {
+                "decision": item["decision"],
+                "predicted_score": item["predicted_score"],
+                "confidence": item.get("confidence"),
+                "reason": item.get("reason"),
+                "result_path": str(result_path),
+            }
+        if existing_ready:
+            return {
+                "status": state.get("status", "record_rubrics_completed"),
+                "video_id": state["video_id"],
+                "rubrics": existing,
+                "evidence_report": state.get("rubric_evidence_reports", {}).get("7_9"),
+                **_skill_metadata(skill_plan, (7, 9)),
+                "source_video_unchanged": True,
+                "idempotent_replay": True,
+            }
+
+    config = _state_config(state)
+    source = _verify_source_video(state)
+    input_dir = run_dir / "input_video"
+    input_dir.mkdir(exist_ok=True)
+    private_copy = input_dir / source.name
+    if not private_copy.exists():
+        shutil.copy2(source, private_copy)
+    action_path = None
+    if isinstance(state.get("action_summary"), str) and state["action_summary"]:
+        candidate = resolve_inside(state["action_summary"], run_dir, must_exist=False)
+        action_path = candidate if candidate.is_file() else None
+    boundary_path = None
+    if isinstance(state.get("boundary_summary"), str) and state["boundary_summary"]:
+        candidate = resolve_inside(state["boundary_summary"], run_dir, must_exist=False)
+        boundary_path = candidate if candidate.is_file() else None
+    try:
+        try:
+            from . import record_rubrics as record_module
+        except ImportError:
+            import record_rubrics as record_module  # type: ignore
+        evidence = record_module.run_record_rubrics(
+            video_path=private_copy,
+            source_video_id=state["source_video_id"],
+            video_id=state["video_id"],
+            run_dir=run_dir,
+            model_config=config["models"]["qwen"],
+            action_summary_path=action_path,
+            boundary_summary_path=boundary_path,
+            fallback_action_summary_path=None,
+            allow_video_calibration=False,
+            allow_historical_fallback=False,
+            skill_plan=skill_plan,
+        )
+    except (OSError, RuntimeError, ValueError, KeyError, json.JSONDecodeError) as exc:
+        raise ToolError(f"record evidence acquisition failed: {type(exc).__name__}: {exc}") from exc
+
+    paths: dict[str, str] = {}
+    compact: dict[str, Any] = {}
+    for rubric_id, key in ((7, "rubric_7"), (9, "rubric_9")):
+        item = evidence.get(key)
+        if not isinstance(item, dict) or item.get("decision") not in DECISIONS:
+            raise ToolError(f"record evidence returned invalid rubric {rubric_id} result")
+        predicted = 1 if item["decision"] == "pass" else 0
+        result = {
+            "schema_version": "resistance_agent_rubric_result.v2",
+            "video_id": state["video_id"],
+            "source_video_id": state["source_video_id"],
+            "rubric_id": rubric_id,
+            "decision": item["decision"],
+            "predicted_score": predicted,
+            "confidence": item.get("confidence"),
+            "reason": item.get("reason"),
+            "source_artifact": evidence.get("report_path"),
+            "diagnostics": item.get("diagnostics", {}),
+            "execution_mode": "execute_visual_evidence",
+            **_skill_metadata(skill_plan, (7, 9)),
+        }
+        result_path = run_dir / "rubrics" / f"rubric_{rubric_id}.json"
+        write_json(result_path, result)
+        paths[str(rubric_id)] = str(result_path.resolve())
+        compact[str(rubric_id)] = {**result, "result_path": paths[str(rubric_id)]}
+    _verify_source_video(state)
+    state["rubric_results"].update(paths)
+    state.setdefault("rubric_evidence_reports", {})["7_9"] = evidence.get("report_path")
+    state["status"] = "record_rubrics_completed"
+    state["tool_calls"].append(
+        {"tool": "run_record_rubrics", "rubric_ids": [7, 9], "evidence_report": evidence.get("report_path"), "at": utc_now()}
+    )
+    _save_state(run_dir, state)
+    return {
+        "status": state["status"],
+        "video_id": state["video_id"],
+        "rubrics": compact,
+        "evidence_report": evidence.get("report_path"),
+        **_skill_metadata(skill_plan, (7, 9)),
         "source_video_unchanged": True,
     }
 
@@ -2462,6 +2593,8 @@ def run_remaining_rubrics(run_id: str, use_fallback_temporal_guard: bool = False
         "switch_rubric_completed",
         "series_rubric_completed",
         "meter_rubrics_completed",
+        "polarity_rubric_completed",
+        "record_rubrics_completed",
         "remaining_rubrics_completed",
     } and not use_fallback_temporal_guard:
         raise ToolError("refine_rubric_boundaries must complete before remaining rubrics")
@@ -2873,8 +3006,9 @@ RUBRIC_PRODUCER_GROUPS: tuple[tuple[str, tuple[int, ...]], ...] = (
     ("run_switch_rubric", (3,)),
     ("run_series_rubric", (1,)),
     ("run_meter_rubrics", (5, 6)),
-    ("run_remaining_rubrics", (0, 2, 8)),
     ("run_polarity_rubric", (4,)),
+    ("run_record_rubrics", (7, 9)),
+    ("run_remaining_rubrics", (0, 2, 8)),
 )
 
 
@@ -2891,11 +3025,13 @@ def _rubric_bundle_plan(
             normalized.append(rubric_id)
 
     requested = set(normalized)
+    dependency_ids = {4, 5, 6} if requested.intersection({7, 9}) else set()
+    expanded = requested | dependency_ids
     if skill_plan is None:
         producer_plan = [
             {"tool": tool_name, "rubric_ids": list(produced_ids)}
             for tool_name, produced_ids in RUBRIC_PRODUCER_GROUPS
-            if requested.intersection(produced_ids)
+            if expanded.intersection(produced_ids)
         ]
     else:
         try:
@@ -2903,7 +3039,7 @@ def _rubric_bundle_plan(
         except ImportError:
             from skills import SkillExecutionError, producer_plan as registered_producer_plan  # type: ignore
         try:
-            producer_plan = registered_producer_plan(skill_plan, tuple(normalized))
+            producer_plan = registered_producer_plan(skill_plan, tuple(sorted(expanded)))
         except SkillExecutionError as exc:
             raise ToolError(f"registered skill dispatch failed: {exc}") from exc
     co_produced = sorted(
@@ -2914,6 +3050,7 @@ def _rubric_bundle_plan(
     producer_call_count = len(producer_plan)
     return {
         "requested_rubric_ids": normalized,
+        "dependency_rubric_ids": sorted(dependency_ids - requested),
         "co_produced_rubric_ids": co_produced,
         "producer_plan": producer_plan,
         "per_rubric_call_count": len(normalized),
@@ -3010,6 +3147,7 @@ TOOL_REGISTRY: dict[str, Callable[..., dict[str, Any]]] = {
     "run_switch_rubric": run_switch_rubric,
     "run_series_rubric": run_series_rubric,
     "run_meter_rubrics": run_meter_rubrics,
+    "run_record_rubrics": run_record_rubrics,
     "run_remaining_rubrics": run_remaining_rubrics,
     "run_polarity_rubric": run_polarity_rubric,
     "run_rubric_bundle": run_rubric_bundle,
@@ -3143,6 +3281,12 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         ["run_id"],
     ),
     _schema(
+        "run_record_rubrics",
+        "Use same-cycle paper and meter evidence, then require current-run R4/R5/R6 to generate binary R7/R9 artifacts.",
+        {"run_id": RUN_ID},
+        ["run_id"],
+    ),
+    _schema(
         "run_remaining_rubrics",
         "Use Temporal Guard windows, OpenCV and Qwen on the real video copy to generate binary R0/R2/R8 evidence artifacts.",
         {"run_id": RUN_ID},
@@ -3161,14 +3305,14 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "run_id": RUN_ID,
             "rubric_ids": {
                 "type": "array",
-                "items": {"type": "integer", "enum": [0, 1, 2, 3, 4, 5, 6, 8]},
+                "items": {"type": "integer", "enum": list(PUBLISHED_RUBRIC_IDS)},
                 "minItems": 1,
                 "description": "Requested rubric IDs; duplicates are removed and grouped producers may co-produce related rubrics.",
             },
         },
         ["run_id", "rubric_ids"],
     ),
-    _schema("load_rubric_result", "Load one frozen binary rubric result in explicit replay mode.", {"run_id": RUN_ID, "rubric_id": {"type": "integer", "enum": [0, 1, 2, 3, 4, 5, 6, 8]}}, ["run_id", "rubric_id"]),
+    _schema("load_rubric_result", "Load one frozen binary rubric result in explicit replay mode.", {"run_id": RUN_ID, "rubric_id": {"type": "integer", "enum": list(PUBLISHED_RUBRIC_IDS)}}, ["run_id", "rubric_id"]),
     _schema(
         "load_rubric_bundle",
         "Load the requested frozen binary rubric results in one explicit replay call.",
@@ -3176,7 +3320,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "run_id": RUN_ID,
             "rubric_ids": {
                 "type": "array",
-                "items": {"type": "integer", "enum": [0, 1, 2, 3, 4, 5, 6, 8]},
+                "items": {"type": "integer", "enum": list(PUBLISHED_RUBRIC_IDS)},
                 "minItems": 1,
             },
         },

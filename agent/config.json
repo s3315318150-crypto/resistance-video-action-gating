@@ -88,6 +88,11 @@
     },
     "polarity_rubric": {
       "algorithm": "current-run R5 pointer evidence reuse"
+    },
+    "record_rubrics": {
+      "algorithm": "same-cycle paper/meter comparison with current-run R4/R5/R6 prerequisite gate",
+      "input_policy": "current_run_visual_evidence_only",
+      "rubric_ids": [7, 9]
     }
   },
   "limits": {
